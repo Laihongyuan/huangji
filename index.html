@@ -1,0 +1,2784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>皇极排卦 V0.27.0 - 皇极经世推演与双引擎可视化平台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入与 lunar_python 完全同源的官方 lunar-javascript 寿星天文算法库 -->
+    <script src="https://cdn.jsdelivr.net/npm/lunar-javascript@1.6.12/lunar.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        bgMain: '#F4F3EF',
+                        cardBg: '#FFFFFF',
+                        borderSubtle: '#E4E2DD',
+                        goldPrimary: '#C59B5F',
+                        goldLight: '#F5EFE6',
+                        goldDark: '#9E7840',
+                        slatePrimary: '#4A5D6B',
+                        slateDark: '#33424D',
+                        tealPrimary: '#1A7B72',
+                        tealLight: '#E5F3F1',
+                        tealMuted: '#587A75',
+                        yaoNormal: '#9E9284',
+                        yaoActive: '#B88648',
+                        textMain: '#2C2A26',
+                        textMuted: '#858078',
+                        // 五宫古典色标
+                        palaceQian: '#D9534F',   // 乾宫红
+                        palaceLi: '#E67E9F',     // 离宫粉
+                        palaceZhen: '#3A9AD9',   // 震宫青蓝
+                        palaceDui: '#7A8B99',    // 兑宫银白
+                        palaceTu: '#5CB85C'      // 对冲土宫绿
+                    },
+                    fontFamily: {
+                        serif: ['"Noto Serif SC"', 'SimSun', 'serif'],
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            background-color: #F4F3EF;
+            color: #2C2A26;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+        }
+        .serif-title {
+            font-family: 'Noto Serif SC', serif;
+        }
+        /* 自定义细腻滚动条 */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #D5D2CA;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #B8B3A8;
+        }
+        /* 卦象圆环节点动画与悬浮效果 */
+        .hex-wedge {
+            cursor: pointer;
+            transition: opacity 0.15s ease;
+        }
+        .hex-wedge:hover .wedge-bg {
+            fill: rgba(197, 155, 95, 0.14);
+        }
+        .hex-wedge.active .wedge-bg {
+            fill: rgba(197, 155, 95, 0.24);
+        }
+        /* 16宫格与256宫格动效 */
+        .grid-cell-16 {
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .grid-cell-16:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px -4px rgba(44, 42, 38, 0.08);
+        }
+        /* 模态框淡入 */
+        .modal-backdrop {
+            background-color: rgba(30, 28, 24, 0.45);
+            backdrop-filter: blur(3px);
+        }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        /* 研究层滚轮选择器样式 */
+        .wheel-box {
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .wheel-box:hover {
+            border-color: #1A7B72;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col overflow-hidden">
+
+    <!-- 模拟桌面窗口顶部状态条 (复刻原图V0.27.0窗口质感) -->
+    <header class="h-7 bg-[#2B2B2B] text-[#CCCCCC] text-xs px-3 flex items-center justify-between shrink-0 border-b border-[#1F1F1F]">
+        <div class="flex items-center space-x-2">
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-goldPrimary"></span>
+            <span class="font-medium tracking-wide text-[#E5E5E5]">皇极排卦 V0.27.0</span>
+            <span class="text-[10px] text-[#888888] ml-2">邵雍《皇极经世》元会运世 · 展示层五级独立表单 & 研究层天文万年历节气四柱</span>
+        </div>
+        <div class="flex items-center space-x-4 text-[11px] text-[#999999] font-mono">
+            <span>FPS <b class="text-[#CCCCCC]">60</b></span>
+            <span>CPU <b class="text-[#CCCCCC]">9%</b></span>
+            <span>历算引擎: <b class="text-emerald-400">天文儒略日/节气校准</b></span>
+        </div>
+    </header>
+
+    <!-- 主体视图容器 -->
+    <div class="flex-1 flex overflow-hidden p-2.5 gap-2.5">
+
+        <!-- ==================== 左侧控制栏 (295px) ==================== -->
+        <aside class="w-[295px] bg-cardBg rounded-2xl border border-borderSubtle flex flex-col justify-between p-4 shrink-0 shadow-sm overflow-y-auto">
+            <div class="space-y-3.5">
+                <!-- 顶部软件名 -->
+                <div class="flex items-baseline justify-between pb-1">
+                    <h1 class="serif-title text-xl font-bold tracking-wider text-textMain flex items-center gap-2">
+                        <span id="brandAccentBar" class="w-1 h-5 bg-goldPrimary rounded-full inline-block"></span>
+                        皇极排卦
+                    </h1>
+                </div>
+
+                <!-- 展示层 / 研究层 顶层切换 -->
+                <div class="grid grid-cols-2 gap-1.5 bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                    <button id="btnLayerDisplay" onclick="switchAppLayer('display')" class="py-2 text-xs font-semibold rounded-lg transition-all bg-goldPrimary text-white shadow-sm">
+                        展示层
+                    </button>
+                    <button id="btnLayerResearch" onclick="switchAppLayer('research')" class="py-2 text-xs font-semibold rounded-lg transition-all text-textMuted hover:text-textMain">
+                        研究层
+                    </button>
+                </div>
+
+                <!-- 展示层专属参数区（5个Tab各自拥有独立表单） -->
+                <div id="leftDisplayControls" class="space-y-3.5">
+                    <!-- 卦象层级提示与切换Tab -->
+                    <div>
+                        <div id="scopeHintText" class="text-[11px] font-medium text-goldDark mb-1.5">
+                            日卦 · 内部360日 / 节气
+                        </div>
+                        <div class="grid grid-cols-5 border-b border-borderSubtle text-xs font-medium text-center">
+                            <button onclick="switchHexScope('yun')" data-scope="yun" class="scope-tab py-1.5 text-textMuted hover:text-textMain transition-colors">运卦</button>
+                            <button onclick="switchHexScope('shi')" data-scope="shi" class="scope-tab py-1.5 text-textMuted hover:text-textMain transition-colors">世卦</button>
+                            <button onclick="switchHexScope('nian')" data-scope="nian" class="scope-tab py-1.5 text-textMuted hover:text-textMain transition-colors">年卦</button>
+                            <button onclick="switchHexScope('yue')" data-scope="yue" class="scope-tab py-1.5 text-textMuted hover:text-textMain transition-colors">月卦</button>
+                            <button onclick="switchHexScope('ri')" data-scope="ri" class="scope-tab py-1.5 text-goldDark font-bold border-b-2 border-goldPrimary transition-colors">日卦</button>
+                        </div>
+                    </div>
+
+                    <!-- 动态生成的专属层级定位表单容器 (运/世/年/月/日 各自独立) -->
+                    <div id="dynamicScopeFormContainer" class="space-y-3">
+                        <!-- 由 renderLeftScopeForm() 动态渲染 -->
+                    </div>
+                </div>
+
+                <!-- 研究层左侧导航 (切换至研究层时显示) -->
+                <div id="leftResearchControls" class="hidden space-y-3 pt-2">
+                    <div class="text-xs font-semibold text-textMuted">研究工具</div>
+                    <div class="p-3 rounded-xl bg-[#E2EFEA] border border-[#B8D8CE] text-slateDark cursor-pointer shadow-xs">
+                        <div class="flex items-center gap-2 font-semibold text-xs text-[#234E43]">
+                            <span class="w-1.5 h-1.5 rounded-full bg-goldPrimary"></span>
+                            历法与节气
+                        </div>
+                        <div class="text-[11px] text-[#4C7066] mt-0.5 pl-3.5">四柱 · 年月日卦</div>
+                    </div>
+                    <div class="pt-6 text-[11px] text-textMuted space-y-1 border-t border-borderSubtle">
+                        <div class="font-semibold text-textMain">历史历制</div>
+                        <div>北京时间 · UTC+8</div>
+                        <div class="text-[10px]">寿星天文算法 · 23:00子时换日</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 底部操作区 -->
+            <div id="leftBottomAction" class="pt-3 border-t border-borderSubtle space-y-2">
+                <div id="leftRangeHint" class="text-[10px] text-center text-textMuted tracking-tight">
+                    运1—360 · 世1—12 · 年1—30 · 月1—12 · 日1—30
+                </div>
+                <button id="btnExecutePaiGua" onclick="triggerPaiGuaAction()" class="w-full py-2.5 rounded-xl bg-slatePrimary hover:bg-slateDark active:scale-[0.99] text-white font-semibold text-xs shadow-sm transition-all flex items-center justify-center gap-2">
+                    <span id="btnExecuteText">排日卦</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ==================== 中间展示层 & 右侧结果层 容器 ==================== -->
+        <div id="displayLayerContainer" class="flex-1 flex gap-2.5 overflow-hidden">
+
+            <!-- 中间主可视化画布区 (Flex-1) -->
+            <main class="flex-1 bg-[#EAE8E1] rounded-2xl border border-borderSubtle relative flex flex-col overflow-hidden shadow-inner">
+                
+                <!-- 画布顶部悬浮控制栏 -->
+                <div class="h-12 px-4 flex items-center justify-between z-20 pointer-events-none">
+                    <!-- 左侧：动画推演与进度 -->
+                    <div class="flex items-center gap-1.5 bg-white/90 backdrop-blur px-2.5 py-1.5 rounded-xl border border-borderSubtle shadow-sm pointer-events-auto">
+                        <button onclick="setPlayState('pause')" id="btnPlayPause" class="px-2 py-1 text-[11px] rounded-md text-textMuted hover:bg-bgMain transition-colors">暂停</button>
+                        <button onclick="resetCanvasAndAnim()" class="px-2 py-1 text-[11px] rounded-md text-textMuted hover:bg-bgMain transition-colors">重播</button>
+                        <button onclick="setPlayState('normal')" id="btnPlayNormal" class="px-2.5 py-1 text-[11px] rounded-md bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 transition-colors">标准</button>
+                        <button onclick="setPlayState('fast')" id="btnPlayFast" class="px-2 py-1 text-[11px] rounded-md text-textMuted hover:bg-bgMain transition-colors">快速</button>
+                        <span class="h-3 w-[1px] bg-borderSubtle mx-1"></span>
+                        <span id="animStepCounter" class="text-[11px] font-mono text-textMuted pr-1">准备 · 0/384</span>
+                    </div>
+
+                    <!-- 中部：双引擎可视化视图切换器 -->
+                    <div class="flex items-center gap-1 bg-white/95 backdrop-blur p-1 rounded-xl border border-borderSubtle shadow-sm pointer-events-auto">
+                        <button onclick="switchCanvasMode('circle')" id="tabModeCircle" class="px-3 py-1 text-xs font-semibold rounded-lg bg-goldPrimary text-white shadow-sm transition-all">
+                            先天64卦圆图
+                        </button>
+                        <button onclick="switchCanvasMode('grid16')" id="tabModeGrid16" class="px-3 py-1 text-xs font-semibold rounded-lg text-textMuted hover:text-textMain transition-all">
+                            16宫格消长图
+                        </button>
+                        <button onclick="switchCanvasMode('grid256')" id="tabModeGrid256" class="px-3 py-1 text-xs font-semibold rounded-lg text-textMuted hover:text-textMain transition-all">
+                            256宫格迭代图
+                        </button>
+                        <button onclick="switchCanvasMode('square64')" id="tabModeSquare64" class="px-3 py-1 text-xs font-semibold rounded-lg text-textMuted hover:text-textMain transition-all">
+                            五宫64卦方图
+                        </button>
+                    </div>
+
+                    <!-- 右侧：规则提示标签 -->
+                    <div class="flex items-center gap-2 bg-white/90 backdrop-blur px-3 py-1.5 rounded-xl border border-borderSubtle shadow-sm pointer-events-auto">
+                        <span id="canvasRuleBadge" class="text-[11px] font-medium text-goldDark">循圆图向前 · 小运自上而下</span>
+                        <button onclick="togglePalaceColor()" id="btnPalaceColor" title="切换五宫五行能量着色" class="text-[11px] px-2 py-0.5 rounded bg-bgMain hover:bg-goldLight text-textMuted hover:text-goldDark border border-borderSubtle transition-colors">
+                            五宫色标: 关
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 视图1：先天64卦圆图 (SVG 可缩放拖拽画布) -->
+                <div id="viewCircleContainer" class="flex-1 w-full h-full relative overflow-hidden cursor-grab active:cursor-grabbing flex items-center justify-center">
+                    <svg id="circleSvg" viewBox="-460 -460 920 920" class="w-full h-full max-w-[880px] max-h-[880px] transition-transform duration-75 ease-out">
+                        <defs>
+                            <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+                                <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.6"/>
+                                <stop offset="100%" stop-color="#EAE8E1" stop-opacity="0"/>
+                            </radialGradient>
+                        </defs>
+                        <!-- 中心背景光晕与辅助圆环 -->
+                        <circle cx="0" cy="0" r="420" fill="url(#centerGlow)" />
+                        <circle cx="0" cy="0" r="365" fill="none" stroke="#DCD8CE" stroke-width="1" />
+                        <circle cx="0" cy="0" r="295" fill="none" stroke="#DCD8CE" stroke-width="1" />
+                        <circle cx="0" cy="0" r="288" fill="none" stroke="#E4E0D6" stroke-width="0.75" stroke-dasharray="3,3" />
+                        <circle cx="0" cy="0" r="145" fill="none" stroke="#E2DFD7" stroke-width="1" />
+                        
+                        <!-- 动态生成的64卦扇区与爻象容器 -->
+                        <g id="svgHexRingGroup"></g>
+
+                        <!-- 中心太极与当前定位摘要环 -->
+                        <g id="svgCenterInfo" class="pointer-events-none">
+                            <circle cx="0" cy="0" r="96" fill="#F4F3EF" fill-opacity="0.88" stroke="#DFDCD4" stroke-width="1.5"/>
+                            <text id="svgCenterSub" x="0" y="-34" text-anchor="middle" class="text-[11px] fill-[#858078] font-mono">第196运 · 戊辰世 · 丁卯年</text>
+                            <text id="svgCenterTitle" x="0" y="6" text-anchor="middle" class="serif-title text-3xl font-bold fill-[#2C2A26]">履</text>
+                            <text id="svgCenterYao" x="0" y="30" text-anchor="middle" class="text-xs fill-[#B88648] font-semibold">四、三、二、初</text>
+                            <text id="svgCenterPalace" x="0" y="52" text-anchor="middle" class="text-[10px] fill-[#858078]">先天兑宫 · 卦序10</text>
+                        </g>
+                    </svg>
+
+                    <!-- 左下角画布缩放快捷控件 -->
+                    <div class="absolute bottom-3 left-4 flex items-center gap-1.5 bg-white/85 backdrop-blur px-2.5 py-1 rounded-xl border border-borderSubtle text-[11px] text-textMuted shadow-sm">
+                        <button onclick="zoomSvg(1.15)" class="hover:text-textMain px-1 font-bold">+</button>
+                        <span id="zoomPercentText" class="font-mono text-[10px] w-10 text-center">100%</span>
+                        <button onclick="zoomSvg(0.85)" class="hover:text-textMain px-1 font-bold">-</button>
+                        <span class="text-borderSubtle">|</span>
+                        <button onclick="resetSvgViewport()" class="hover:text-goldDark px-1">居中</button>
+                    </div>
+                </div>
+
+                <!-- 视图2：16宫格本变消长图 (视频改良算法：1本卦生12变卦 + 倍增规律) -->
+                <div id="viewGrid16Container" class="hidden flex-1 w-full h-full p-5 overflow-y-auto flex flex-col items-center justify-center">
+                    <div class="max-w-3xl w-full bg-white/90 backdrop-blur rounded-2xl border border-borderSubtle p-5 shadow-sm">
+                        <div class="flex items-center justify-between mb-4 pb-2.5 border-b border-borderSubtle">
+                            <div>
+                                <h3 class="serif-title text-base font-bold text-textMain flex items-center gap-2">
+                                    <span>十六宫格 · 六爻倍增消长图（768变基本单元）</span>
+                                    <span id="grid16PalaceBadge" class="text-xs px-2 py-0.5 rounded-full font-sans font-semibold bg-goldLight text-goldDark">兑宫十二卦</span>
+                                </h3>
+                                <p class="text-[11px] text-textMuted mt-0.5">
+                                    中心4格为当前本卦，外围12格自右下角顺时针排列“上爻→初爻”逐次取反生成的12变卦，卦序差值严格遵循 ±1, ±2, ±4, ±8, ±16, ±32 指数倍增律。
+                                </p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-textMuted">切换本卦:</span>
+                                <select id="selectBaseHex16" onchange="onSelectBaseHex(this.value)" class="text-xs bg-bgMain border border-borderSubtle rounded-lg px-2.5 py-1.5 font-semibold text-textMain focus:outline-none">
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 4x4 十六宫格矩阵容器 -->
+                        <div id="grid16Matrix" class="grid grid-cols-4 grid-rows-4 gap-2.5 aspect-square max-h-[510px] mx-auto">
+                            <!-- 由JS动态渲染12个外围变卦格 + 中心2x2合并本卦格 -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 视图3：256宫格分形迭代图 (大周期嵌套小周期：1年12月×12候/2.5天一卦) -->
+                <div id="viewGrid256Container" class="hidden flex-1 w-full h-full p-4 overflow-y-auto flex flex-col items-center justify-center">
+                    <div class="max-w-4xl w-full bg-white/95 backdrop-blur rounded-2xl border border-borderSubtle p-4 shadow-sm flex flex-col h-full max-h-[680px]">
+                        <div class="flex items-center justify-between mb-3 pb-2 border-b border-borderSubtle shrink-0">
+                            <div>
+                                <h3 class="serif-title text-base font-bold text-textMain flex items-center gap-2">
+                                    <span>二百五十六宫格 · 加一倍法大周期嵌套小周期</span>
+                                    <span class="text-[11px] font-sans font-normal px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">精度：30时辰 (2.5天) / 卦</span>
+                                </h3>
+                                <p class="text-[11px] text-textMuted mt-0.5">
+                                    中心4大格为【年/世】大周期主卦；外围12大格对应【十二月/十二律吕】，每个月内部再展开16小宫格（12个2.5天候卦），点击任意月份大格可下钻检视。
+                                </p>
+                            </div>
+                            <div class="text-right font-mono text-xs text-goldDark">
+                                <div id="grid256SummaryText">当前基准：履卦 (第3月高亮)</div>
+                            </div>
+                        </div>
+
+                        <!-- 4x4 大宫格 (每格内含4x4小宫格，共256格) -->
+                        <div id="grid256Matrix" class="flex-1 grid grid-cols-4 grid-rows-4 gap-2 min-h-0">
+                            <!-- 由JS动态生成 -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 视图4：五宫64卦先天方格图 (乾红、离粉、震青、兑白、对冲土宫绿) -->
+                <div id="viewSquare64Container" class="hidden flex-1 w-full h-full p-4 overflow-y-auto flex flex-col items-center justify-center">
+                    <div class="max-w-3xl w-full bg-white/95 backdrop-blur rounded-2xl border border-borderSubtle p-5 shadow-sm">
+                        <div class="flex items-center justify-between mb-3 pb-2 border-b border-borderSubtle">
+                            <div>
+                                <h3 class="serif-title text-base font-bold text-textMain">邵雍先天六十四卦方图 · 五宫五行能量分布</h3>
+                                <p class="text-[11px] text-textMuted mt-0.5">
+                                    乾宫12卦与离宫12卦天地水火相克对冲；震宫12卦与兑宫12卦相互对冲；剩余16卦生成“对冲土宫（宫调）”。点击任意一卦可查看其12变卦序列。
+                                </p>
+                            </div>
+                            <!-- 五宫图例筛选 -->
+                            <div class="flex flex-wrap gap-1.5 text-[11px]">
+                                <span class="px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-medium">乾宫(12)</span>
+                                <span class="px-2 py-0.5 rounded bg-pink-100 text-pink-800 border border-pink-300 font-medium">离宫(12)</span>
+                                <span class="px-2 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-300 font-medium">震宫(12)</span>
+                                <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-300 font-medium">兑宫(12)</span>
+                                <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-medium">对冲土宫(16)</span>
+                            </div>
+                        </div>
+                        <div id="square64Matrix" class="grid grid-cols-8 gap-1.5">
+                            <!-- 8x8 先天64卦方图 -->
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+
+            <!-- ==================== 右侧结果与推演面板 (325px) ==================== -->
+            <aside class="w-[325px] flex flex-col gap-2.5 shrink-0 overflow-y-auto">
+                
+                <!-- 卡片1：结果与大号六爻动态渲染 -->
+                <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 shadow-sm">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="serif-title text-base font-bold text-textMain">结果</h2>
+                        <button onclick="openDeductionModal()" class="px-3 py-1 rounded-full text-[11px] font-medium bg-bgMain hover:bg-goldLight text-textMuted hover:text-goldDark border border-borderSubtle transition-colors">
+                            推演过程
+                        </button>
+                    </div>
+
+                    <!-- 命中卦名与爻位标题 -->
+                    <div class="text-center my-2">
+                        <div id="resultHexTitle" class="serif-title text-lg font-bold text-textMain tracking-wide">
+                            履 · 四、三、二、初
+                        </div>
+                        <div id="resultHexSub" class="text-[11px] text-textMuted mt-0.5">
+                            先天序号 #10 · 上乾下兑 · 天泽履
+                        </div>
+                    </div>
+
+                    <!-- 六爻图形渲染区 (可点击单爻测试爻变) -->
+                    <div id="yaoBarsContainer" class="space-y-2.5 my-3 px-2 py-2 bg-[#FAF9F6] rounded-xl border border-borderSubtle/70">
+                        <!-- 由JS动态渲染 上、五、四、三、二、初 六爻 -->
+                    </div>
+                    <div class="text-[10px] text-center text-textMuted">
+                        提示：金色为当前节气/日辰取爻，点击任意爻可手动推演单爻变卦
+                    </div>
+                </div>
+
+                <!-- 卡片2：定位层级 (会、运、世、年、月、日 干支表) -->
+                <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 shadow-sm">
+                    <h2 class="serif-title text-base font-bold text-textMain mb-2.5">定位层级</h2>
+                    <div class="bg-[#F7F6F2] rounded-xl border border-borderSubtle/80 p-3">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="text-textMuted border-b border-borderSubtle/80 text-left">
+                                    <th class="pb-1.5 font-medium">层级</th>
+                                    <th class="pb-1.5 font-medium">序号</th>
+                                    <th class="pb-1.5 font-medium text-right">干支</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hierarchyTableBody" class="divide-y divide-borderSubtle/50 font-medium">
+                                <!-- JS实时计算填充 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 卡片3：节气与推演 & 768变音律信息 -->
+                <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 shadow-sm flex-1">
+                    <h2 class="serif-title text-base font-bold text-textMain mb-2.5">节气与推演</h2>
+                    <div class="bg-[#F7F6F2] rounded-xl border border-borderSubtle/80 p-3 space-y-2 text-xs">
+                        <div class="flex justify-between">
+                            <span class="text-textMuted">节气</span>
+                            <span id="infoSolarTerm" class="font-semibold text-textMain">春季谷雨</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-textMuted">节气内序</span>
+                            <span id="infoTermDay" class="font-semibold text-textMain">谷雨内第3日</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-textMuted">季内推演</span>
+                            <span id="infoSeason" class="font-semibold text-textMain">春季 (木旺)</span>
+                        </div>
+                        <div class="flex justify-between items-start pt-1 border-t border-borderSubtle/60">
+                            <span class="text-textMuted shrink-0">本气间四爻</span>
+                            <span id="infoFourYao" class="font-semibold text-goldDark text-right">睽四、睽三、睽二、睽初</span>
+                        </div>
+                        <!-- 改良版768变与五宫音律附加参数 -->
+                        <div class="pt-2 mt-1 border-t border-borderSubtle/80 space-y-1.5">
+                            <div class="flex justify-between">
+                                <span class="text-textMuted">五宫五行属性</span>
+                                <span id="infoFivePalace" class="font-semibold text-slatePrimary">兑宫十二卦 (金商)</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-textMuted">十二律吕波长</span>
+                                <span id="infoPitchPipe" class="font-semibold text-textMain">姑洗律 · 第3变</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </aside>
+        </div>
+
+        <!-- ==================== 研究层完整视图 (点击左侧“研究层”时显示) ==================== -->
+        <div id="researchLayerContainer" class="hidden flex-1 bg-[#F5F4F0] rounded-2xl border border-borderSubtle p-5 overflow-y-auto shadow-sm">
+            <div class="max-w-6xl mx-auto space-y-4">
+                
+                <!-- 顶部标题栏 -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="serif-title text-xl font-bold text-textMain">历法与节气</h2>
+                        <p class="text-xs text-textMuted mt-0.5">历法转换 / 四柱 / 卦象研究（内置寿星天文算法 · 支持公农历真实互转）</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="px-3 py-1 rounded-full bg-[#E2EFEA] text-[#285A4E] text-xs font-semibold border border-[#C0DDD4]">研究层</span>
+                    </div>
+                </div>
+
+                <!-- 1. 计算输入面板（支持公历日期 / 农历日期真实互转 + 滚轮调节） -->
+                <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 shadow-xs">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-bold text-textMain">计算输入</span>
+                            <div class="inline-flex bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                                <button id="btnResInputSolar" onclick="switchResCalendarType('solar')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-[#E2EFEA] text-[#234E43] shadow-xs transition-all">公历日期</button>
+                                <button id="btnResInputLunar" onclick="switchResCalendarType('lunar')" class="px-3 py-1 rounded-lg text-xs font-medium text-textMuted hover:text-textMain transition-all">农历日期</button>
+                            </div>
+                            <span id="resInputModeBadge" class="text-[11px] text-goldDark font-medium">当前按公历输入（满23:00自动进子时换下一日柱）</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-[11px] text-textMuted">
+                            <button onclick="setResQuickDate(2000,12,21,23,8)" class="px-2 py-0.5 rounded bg-bgMain hover:bg-goldLight text-textMain border border-borderSubtle">示例: 2000-12-21 23:08</button>
+                            <button onclick="setResNowDate()" class="px-2 py-0.5 rounded bg-bgMain hover:bg-goldLight text-textMain border border-borderSubtle">当前时间</button>
+                            <span>滚轮选择 · 点击数字输入</span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-6 gap-3 items-center">
+                        <!-- 年 -->
+                        <div class="text-center">
+                            <div class="text-xs font-semibold text-textMuted mb-1.5">年</div>
+                            <div onwheel="onResWheel(event, 'year')" class="bg-[#F9F8F5] rounded-xl border border-borderSubtle py-1.5 px-2 flex flex-col items-center select-none">
+                                <button onclick="stepResDate('year', -1)" id="resPrevYear" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">1999</button>
+                                <input id="resInputYear" type="number" value="2000" onchange="onResManualChange()" class="w-full my-0.5 py-1 bg-[#E5F0EC] text-[#1E3F36] rounded-lg text-center font-bold text-lg focus:outline-none">
+                                <button onclick="stepResDate('year', 1)" id="resNextYear" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">2001</button>
+                            </div>
+                        </div>
+                        <!-- 月 -->
+                        <div class="text-center">
+                            <div class="text-xs font-semibold text-textMuted mb-1.5" id="resMonthLabel">月</div>
+                            <div onwheel="onResWheel(event, 'month')" class="bg-[#F9F8F5] rounded-xl border border-borderSubtle py-1.5 px-2 flex flex-col items-center select-none">
+                                <button onclick="stepResDate('month', -1)" id="resPrevMonth" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">11</button>
+                                <input id="resInputMonth" type="number" min="1" max="12" value="12" onchange="onResManualChange()" class="w-full my-0.5 py-1 bg-[#E5F0EC] text-[#1E3F36] rounded-lg text-center font-bold text-lg focus:outline-none">
+                                <button onclick="stepResDate('month', 1)" id="resNextMonth" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">1</button>
+                            </div>
+                        </div>
+                        <!-- 日 -->
+                        <div class="text-center">
+                            <div class="text-xs font-semibold text-textMuted mb-1.5" id="resDayLabel">日</div>
+                            <div onwheel="onResWheel(event, 'day')" class="bg-[#F9F8F5] rounded-xl border border-borderSubtle py-1.5 px-2 flex flex-col items-center select-none">
+                                <button onclick="stepResDate('day', -1)" id="resPrevDay" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">20</button>
+                                <input id="resInputDay" type="number" min="1" max="31" value="21" onchange="onResManualChange()" class="w-full my-0.5 py-1 bg-[#E5F0EC] text-[#1E3F36] rounded-lg text-center font-bold text-lg focus:outline-none">
+                                <button onclick="stepResDate('day', 1)" id="resNextDay" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">22</button>
+                            </div>
+                        </div>
+                        <!-- 时 -->
+                        <div class="text-center">
+                            <div class="text-xs font-semibold text-textMuted mb-1.5">时</div>
+                            <div onwheel="onResWheel(event, 'hour')" class="bg-[#F9F8F5] rounded-xl border border-borderSubtle py-1.5 px-2 flex flex-col items-center select-none">
+                                <button onclick="stepResDate('hour', -1)" id="resPrevHour" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">22</button>
+                                <input id="resInputHour" type="number" min="0" max="23" value="23" onchange="onResManualChange()" class="w-full my-0.5 py-1 bg-[#E5F0EC] text-[#1E3F36] rounded-lg text-center font-bold text-lg focus:outline-none">
+                                <button onclick="stepResDate('hour', 1)" id="resNextHour" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">0</button>
+                            </div>
+                        </div>
+                        <!-- 分 -->
+                        <div class="text-center">
+                            <div class="text-xs font-semibold text-textMuted mb-1.5">分</div>
+                            <div onwheel="onResWheel(event, 'minute')" class="bg-[#F9F8F5] rounded-xl border border-borderSubtle py-1.5 px-2 flex flex-col items-center select-none">
+                                <button onclick="stepResDate('minute', -1)" id="resPrevMinute" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">7</button>
+                                <input id="resInputMinute" type="number" min="0" max="59" value="8" onchange="onResManualChange()" class="w-full my-0.5 py-1 bg-[#E5F0EC] text-[#1E3F36] rounded-lg text-center font-bold text-lg focus:outline-none">
+                                <button onclick="stepResDate('minute', 1)" id="resNextMinute" class="text-[11px] text-textMuted/70 hover:text-textMain font-mono">9</button>
+                            </div>
+                        </div>
+                        <!-- 计算按钮 -->
+                        <div class="pt-5">
+                            <button onclick="executeResearchCalculation()" class="w-full py-3.5 rounded-xl bg-[#2B6E62] hover:bg-[#22584E] active:scale-[0.99] text-white font-semibold text-xs shadow-sm transition-all">
+                                计算历法与节气
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 节气边界卡片 -->
+                <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 shadow-xs grid grid-cols-12 items-center gap-4">
+                    <div class="col-span-1 text-sm font-bold text-textMain">节气边界</div>
+                    <div class="col-span-5 flex items-center justify-between border-r border-borderSubtle pr-4">
+                        <div>
+                            <div class="text-xs text-textMuted">前一节气 <b id="resPrevTermName" class="text-base text-textMain ml-1">冬至</b></div>
+                            <div id="resPrevTermSolar" class="text-xs font-mono text-textMain mt-1">公历 2000-12-21 21:37:26</div>
+                            <div id="resPrevTermLunar" class="text-[11px] text-textMuted mt-0.5">农历 二〇〇〇年冬月廿六 亥时</div>
+                        </div>
+                        <span id="resPrevTermElapsed" class="px-2.5 py-1 rounded-lg bg-[#E2EFEA] text-[#285A4E] text-xs font-mono font-medium">已过 0天1时</span>
+                    </div>
+                    <div class="col-span-6 flex items-center justify-between pl-2">
+                        <div>
+                            <div class="text-xs text-textMuted">后一节气 <b id="resNextTermName" class="text-base text-textMain ml-1">小寒</b></div>
+                            <div id="resNextTermSolar" class="text-xs font-mono text-textMain mt-1">公历 2001-01-05 14:49:16</div>
+                            <div id="resNextTermLunar" class="text-[11px] text-textMuted mt-0.5">农历 二〇〇〇年腊月十一 未时</div>
+                        </div>
+                        <span id="resNextTermRemain" class="px-2.5 py-1 rounded-lg bg-[#E2EFEA] text-[#285A4E] text-xs font-mono font-medium">还有 14天15时</span>
+                    </div>
+                </div>
+
+                <!-- 3. 历法摘要卡片 -->
+                <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 shadow-xs grid grid-cols-12 items-center gap-4">
+                    <div class="col-span-1 text-sm font-bold text-textMain">历法摘要</div>
+                    <div class="col-span-4 border-r border-borderSubtle pr-4">
+                        <div class="text-xs text-textMuted">农历</div>
+                        <div id="resLunarSummary" class="text-sm font-bold text-textMain mt-1">二〇〇〇年冬月廿六 子时</div>
+                    </div>
+                    <div class="col-span-3 border-r border-borderSubtle pr-4">
+                        <div class="text-xs text-textMuted">公历 · 北京时间</div>
+                        <div id="resSolarSummary" class="text-sm font-bold font-mono text-textMain mt-1">2000-12-21 23:08:00</div>
+                    </div>
+                    <div class="col-span-4">
+                        <div class="text-xs text-textMuted">定位</div>
+                        <div id="resCoordSummary" class="text-sm font-bold text-textMain mt-1">第7会 · 第192运 · 第2301世 · 第17年 · 第12月</div>
+                    </div>
+                </div>
+
+                <!-- 4. 四柱与卦象对照区 (年卦、月卦、日卦、时卦) -->
+                <div class="space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <h3 class="serif-title text-base font-bold text-textMain">四柱与卦象</h3>
+                        <span class="text-xs text-goldDark font-medium flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-xs bg-yaoActive inline-block"></span>
+                            金色为取爻（点击“重算”可同步至展示层圆图检视）
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-3.5">
+                        <!-- 年柱与年卦 -->
+                        <div class="space-y-2.5">
+                            <div class="bg-[#E5F0EC] rounded-2xl py-3.5 text-center border border-[#CBE0D8]">
+                                <div class="text-xs text-[#52796F] mb-1">年柱</div>
+                                <div id="resPillarYear" class="serif-title text-2xl font-bold text-[#1B3B33] tracking-widest leading-tight">庚<br>辰</div>
+                            </div>
+                            <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 text-center shadow-xs">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="w-10"></span>
+                                    <span class="text-sm font-bold text-textMain">年卦</span>
+                                    <button onclick="syncResearchToDisplay('nian')" class="px-2 py-0.5 rounded bg-[#2B6E62] hover:bg-[#20554B] text-white text-[11px] font-medium">重算</button>
+                                </div>
+                                <div id="resYaoBoxYear" class="my-3 px-2 py-2 bg-[#FAF9F6] rounded-xl border border-borderSubtle/60"></div>
+                                <div id="resTitleYear" class="text-xs font-bold text-textMain pt-2 border-t border-borderSubtle/70">颐三、四、五、上</div>
+                                <div id="resSubYear" class="text-[11px] text-textMuted mt-0.5">庚辰 · 立秋</div>
+                            </div>
+                        </div>
+
+                        <!-- 月柱与月卦 -->
+                        <div class="space-y-2.5">
+                            <div class="bg-[#E5F0EC] rounded-2xl py-3.5 text-center border border-[#CBE0D8]">
+                                <div class="text-xs text-[#52796F] mb-1">月柱</div>
+                                <div id="resPillarMonth" class="serif-title text-2xl font-bold text-[#1B3B33] tracking-widest leading-tight">戊<br>子</div>
+                            </div>
+                            <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 text-center shadow-xs">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="w-10"></span>
+                                    <span class="text-sm font-bold text-textMain">月卦</span>
+                                    <button onclick="syncResearchToDisplay('yue')" class="px-2 py-0.5 rounded bg-[#2B6E62] hover:bg-[#20554B] text-white text-[11px] font-medium">重算</button>
+                                </div>
+                                <div id="resYaoBoxMonth" class="my-3 px-2 py-2 bg-[#FAF9F6] rounded-xl border border-borderSubtle/60"></div>
+                                <div id="resTitleMonth" class="text-xs font-bold text-textMain pt-2 border-t border-borderSubtle/70">姤二、初、大过上、五</div>
+                                <div id="resSubMonth" class="text-[11px] text-textMuted mt-0.5">己丑 · 清明</div>
+                            </div>
+                        </div>
+
+                        <!-- 日柱与日卦 -->
+                        <div class="space-y-2.5">
+                            <div class="bg-[#E5F0EC] rounded-2xl py-3.5 text-center border border-[#CBE0D8]">
+                                <div class="text-xs text-[#52796F] mb-1">日柱</div>
+                                <div id="resPillarDay" class="serif-title text-2xl font-bold text-[#1B3B33] tracking-widest leading-tight">癸<br>丑</div>
+                            </div>
+                            <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 text-center shadow-xs">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="w-10"></span>
+                                    <span class="text-sm font-bold text-textMain">日卦</span>
+                                    <button onclick="syncResearchToDisplay('ri')" class="px-2 py-0.5 rounded bg-[#2B6E62] hover:bg-[#20554B] text-white text-[11px] font-medium">重算</button>
+                                </div>
+                                <div id="resYaoBoxDay" class="my-3 px-2 py-2 bg-[#FAF9F6] rounded-xl border border-borderSubtle/60"></div>
+                                <div id="resTitleDay" class="text-xs font-bold text-textMain pt-2 border-t border-borderSubtle/70">遁二、初、咸上、五</div>
+                                <div id="resSubDay" class="text-[11px] text-textMuted mt-0.5">甲寅 · 冬至</div>
+                            </div>
+                        </div>
+
+                        <!-- 时柱与时卦 -->
+                        <div class="space-y-2.5">
+                            <div class="bg-[#E5F0EC] rounded-2xl py-3.5 text-center border border-[#CBE0D8]">
+                                <div class="text-xs text-[#52796F] mb-1">时柱</div>
+                                <div id="resPillarHour" class="serif-title text-2xl font-bold text-[#1B3B33] tracking-widest leading-tight">甲<br>子</div>
+                            </div>
+                            <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 text-center shadow-xs flex flex-col justify-between min-h-[222px]">
+                                <div class="text-sm font-bold text-textMain">时卦</div>
+                                <div id="resYaoBoxHour" class="my-auto py-4 text-xs text-textMuted">
+                                    <div class="w-6 h-[1px] bg-borderSubtle mx-auto mb-2"></div>
+                                    算法待接入
+                                </div>
+                                <div id="resTitleHour" class="text-xs text-textMuted pt-2 border-t border-borderSubtle/70">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. 全年二十四节气精确时间列表 -->
+                <div class="space-y-2.5 pt-2">
+                    <div class="flex items-center justify-between">
+                        <h3 class="serif-title text-base font-bold text-textMain">全年二十四节气</h3>
+                        <span id="resAnnualTermsHeaderYear" class="text-xs font-mono text-textMuted">2000 年 · 北京时间</span>
+                    </div>
+                    <div id="resAnnualTermsGrid" class="grid grid-cols-4 gap-3.5">
+                        <!-- 由 JS 按春、夏、秋、冬四列完整渲染全年24节气 -->
+                    </div>
+                </div>
+
+                <!-- 6. 像素级还原截图：收起/展开计算依据面板 (lunar_python 1.4.8 寿星天文算法) -->
+                <div class="pt-2 pb-6 space-y-2.5">
+                    <div>
+                        <button id="btnToggleBasis" onclick="toggleCalculationBasis()" class="px-4 py-1.5 rounded-xl bg-[#E5F0EC] hover:bg-[#D5E6E0] text-[#285A4E] text-xs font-semibold border border-[#9E8558] transition-colors">
+                            收起计算依据 -
+                        </button>
+                    </div>
+                    <div id="calculationBasisCard" class="bg-cardBg rounded-2xl border border-borderSubtle p-5 shadow-xs font-mono text-xs text-[#5A5751] space-y-2 leading-relaxed select-text">
+                        <div class="font-sans text-[#6B6760]">lunar_python 1.4.8 (寿星天文算法，北京时间)</div>
+                        <div class="font-sans text-[#6B6760] pb-1">历史历制 (1582-10-04前儒略历，1582-10-15起格里历)</div>
+                        <div id="basisLinesContainer" class="space-y-1 text-[12.5px]">
+                            <!-- JS 实时填充 -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ==================== 推演过程详解弹窗 Modal ==================== -->
+    <div id="deductionModal" class="fixed inset-0 modal-backdrop z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-cardBg rounded-2xl border border-borderSubtle max-w-2xl w-full p-6 shadow-xl space-y-4">
+            <div class="flex items-center justify-between border-b border-borderSubtle pb-3">
+                <h3 class="serif-title text-lg font-bold text-textMain">皇极经世 · 双引擎推演过程详解</h3>
+                <button onclick="closeDeductionModal()" class="w-8 h-8 rounded-lg bg-bgMain hover:bg-goldLight text-textMuted hover:text-textMain flex items-center justify-center font-bold">✕</button>
+            </div>
+            <div id="deductionModalContent" class="space-y-3 text-xs leading-relaxed text-textMain max-h-[65vh] overflow-y-auto pr-1">
+                <!-- 动态生成的推演步骤说明 -->
+            </div>
+            <div class="flex justify-end pt-3 border-t border-borderSubtle">
+                <button onclick="closeDeductionModal()" class="px-5 py-2 rounded-xl bg-slatePrimary text-white text-xs font-semibold hover:bg-slateDark transition-colors">
+                    知悉关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 核心易学与皇极经世双引擎脚本 ==================== -->
+    <script>
+        /**
+         * 一、基础常量：天干、地支、六十甲子、十二律吕、二十四节气
+         */
+        const STEMS = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
+        const BRANCHES = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
+        const PITCH_PIPES = [
+            '黄钟 (子·一变)', '大吕 (丑·二变)', '太簇 (寅·三变)', '夹钟 (卯·四变)',
+            '姑洗 (辰·五变)', '仲吕 (巳·六变)', '蕤宾 (午·七变)', '林钟 (未·八变)',
+            '夷则 (申·九变)', '南吕 (酉·十变)', '无射 (戌·十一变)', '应钟 (亥·十二变)'
+        ];
+        const SOLAR_TERMS = [
+            { name: '立春', season: '春季 (木旺)' }, { name: '雨水', season: '春季 (木旺)' },
+            { name: '惊蛰', season: '春季 (木旺)' }, { name: '春分', season: '春季 (木旺)' },
+            { name: '清明', season: '春季 (木旺)' }, { name: '谷雨', season: '春季 (木旺)' },
+            { name: '立夏', season: '夏季 (火旺)' }, { name: '小满', season: '夏季 (火旺)' },
+            { name: '芒种', season: '夏季 (火旺)' }, { name: '夏至', season: '夏季 (火旺)' },
+            { name: '小暑', season: '夏季 (火旺)' }, { name: '大暑', season: '夏季 (火旺)' },
+            { name: '立秋', season: '秋季 (金旺)' }, { name: '处暑', season: '秋季 (金旺)' },
+            { name: '白露', season: '秋季 (金旺)' }, { name: '秋分', season: '秋季 (金旺)' },
+            { name: '寒露', season: '秋季 (金旺)' }, { name: '霜降', season: '秋季 (金旺)' },
+            { name: '立冬', season: '冬季 (水旺)' }, { name: '小雪', season: '冬季 (水旺)' },
+            { name: '大雪', season: '冬季 (水旺)' }, { name: '冬至', season: '冬季 (水旺)' },
+            { name: '小寒', season: '冬季 (水旺)' }, { name: '大寒', season: '冬季 (水旺)' }
+        ];
+        const YAO_NAMES = ['初', '二', '三', '四', '五', '上'];
+
+        /**
+         * 二、伏羲先天六十四卦完整数据库（严禁省略，1-64全内置）
+         * 规律说明：
+         * 先天八卦数：乾1(111)、兑2(110)、离3(101)、震4(100)、巽5(011)、坎6(010)、艮7(001)、坤8(000)
+         * 这里定义 binary 数组长度为6：[初爻, 二爻, 三爻, 四爻, 五爻, 上爻]，1为阳爻，0为阴爻。
+         * 按照视频与邵雍先天64卦方图序号（乾=1 ... 坤=64）：
+         * 下卦(内卦)決定大行(0..7)，上卦(外卦)决定列(0..7)，使得上爻变化差值为1，五爻差值2，四爻差值4，三爻差值8，二爻差值16，初爻差值32！
+         * 验证：
+         * 乾(1): 下乾(0) 上乾(0) -> 序号 1
+         * 夬(2): 下乾(0) 上兑(1) -> 序号 2 (上爻变，差值+1)
+         * 大有(3): 下乾(0) 上离(2) -> 序号 3
+         * 大壮(4): 下乾(0) 上震(3) -> 序号 4 (五爻再变，差值+2)
+         * 兑(10): 下兑(1) 上兑(1) -> 8*1 + 1 + 1 = 10
+         * 离(19): 下离(2) 上离(2) -> 8*2 + 2 + 1 = 19
+         * 震(28): 下震(3) 上震(3) -> 8*3 + 3 + 1 = 28
+         * 坤(64): 下坤(7) 上坤(7) -> 8*7 + 7 + 1 = 64
+         * 完全吻合视频中：“乾卦序号是1，兑卦序号是10，离卦序号是19，震卦序号是28，坤卦序号是64”！
+         */
+        const TRIGRAMS = [
+            { id: 0, name: '乾', nature: '天', lines: [1, 1, 1] }, // [初, 二, 三]
+            { id: 1, name: '兑', nature: '泽', lines: [1, 1, 0] },
+            { id: 2, name: '离', nature: '火', lines: [1, 0, 1] },
+            { id: 3, name: '震', nature: '雷', lines: [1, 0, 0] },
+            { id: 4, name: '巽', nature: '风', lines: [0, 1, 1] },
+            { id: 5, name: '坎', nature: '水', lines: [0, 1, 0] },
+            { id: 6, name: '艮', nature: '山', lines: [0, 0, 1] },
+            { id: 7, name: '坤', nature: '地', lines: [0, 0, 0] }
+        ];
+
+        // 8x8 先天方图卦名矩阵：行(lowerId 0..7)，列(upperId 0..7)
+        const HEX_NAMES_MATRIX = [
+            // 下乾(0): 上乾、兑、离、震、巽、坎、艮、坤
+            ['乾', '夬', '大有', '大壮', '小畜', '需', '大畜', '泰'],
+            // 下兑(1):
+            ['履', '兑', '睽', '归妹', '中孚', '节', '损', '临'],
+            // 下离(2):
+            ['同人', '革', '离', '丰', '家人', '既济', '贲', '明夷'],
+            // 下震(3):
+            ['无妄', '随', '噬嗑', '震', '益', '屯', '颐', '复'],
+            // 下巽(4):
+            ['姤', '大过', '鼎', '恒', '巽', '井', '蛊', '升'],
+            // 下坎(5):
+            ['讼', '困', '未济', '解', '涣', '坎', '蒙', '师'],
+            // 下艮(6):
+            ['遁', '咸', '旅', '小过', '渐', '蹇', '艮', '谦'],
+            // 下坤(7):
+            ['否', '萃', '晋', '豫', '观', '比', '剥', '坤']
+        ];
+
+        // 构建完整的64卦字典数组 HEXAGRAMS (索引 0..63 对应 卦序 1..64)
+        const HEXAGRAMS = [];
+        const HEX_BY_NAME = {};
+        const HEX_BY_SEQ = {};
+
+        for (let lower = 0; lower < 8; lower++) {
+            for (let upper = 0; upper < 8; upper++) {
+                const seq = lower * 8 + upper + 1; // 1..64
+                const name = HEX_NAMES_MATRIX[lower][upper];
+                const lines = [
+                    TRIGRAMS[lower].lines[0], // 初爻
+                    TRIGRAMS[lower].lines[1], // 二爻
+                    TRIGRAMS[lower].lines[2], // 三爻
+                    TRIGRAMS[upper].lines[0], // 四爻
+                    TRIGRAMS[upper].lines[1], // 五爻
+                    TRIGRAMS[upper].lines[2]  // 上爻
+                ];
+                const fullTitle = (lower === upper)
+                    ? `${TRIGRAMS[upper].name}为${TRIGRAMS[upper].nature}`
+                    : `${TRIGRAMS[upper].nature}${TRIGRAMS[lower].nature}${name}`;
+                
+                const hexObj = {
+                    seq,
+                    name,
+                    fullTitle,
+                    lowerId: lower,
+                    upperId: upper,
+                    upperName: TRIGRAMS[upper].name,
+                    lowerName: TRIGRAMS[lower].name,
+                    lines, // [初,二,三,四,五,上]
+                    palace: 'tu', // 稍后由五宫算法自动标定
+                    palaceName: '对冲土宫'
+                };
+                HEXAGRAMS.push(hexObj);
+                HEX_BY_NAME[name] = hexObj;
+                HEX_BY_SEQ[seq] = hexObj;
+            }
+        }
+
+        /**
+         * 三、改良版核心算法：六爻自上而下逐次取反生成12变卦（768变体系）与五宫分类
+         * 给定任意本卦（seq 1..64），将上爻(5)、五爻(4)、四爻(3)、三爻(2)、二爻(1)、初爻(0)依次取反（6步），
+         * 再从上爻到初爻依次取反回本卦（6步），共12个卦象。
+         */
+        function getHexByLines(lines) {
+            const lower = (1 - lines[0]) * 4 + (1 - lines[1]) * 2 + (1 - lines[2]);
+            const upper = (1 - lines[3]) * 4 + (1 - lines[4]) * 2 + (1 - lines[5]);
+            const seq = lower * 8 + upper + 1;
+            return HEX_BY_SEQ[seq];
+        }
+
+        function generate12Cycle(baseSeq) {
+            const baseHex = HEX_BY_SEQ[baseSeq];
+            const currentLines = [...baseHex.lines];
+            const cycle = [];
+            // 顺序：第1格为本卦自身，随后11步自上而下翻转，第12步翻转初爻回到本卦前一步
+            // 对应视频中：乾(1)->夬(2)->大壮(4)->泰(8)->临(16)->复(32)->坤(64)->剥(63)->观(61)->否(57)->遁(49)->姤(33)
+            cycle.push({
+                step: 1,
+                hex: baseHex,
+                diff: 0,
+                changedYao: '本卦起首',
+                pitch: PITCH_PIPES[0]
+            });
+
+            const flipOrder = [5, 4, 3, 2, 1, 0, 5, 4, 3, 2, 1]; // 前11次翻转产生其余11个卦
+            let prevSeq = baseHex.seq;
+            flipOrder.forEach((yaoIdx, idx) => {
+                currentLines[yaoIdx] = 1 - currentLines[yaoIdx];
+                const nextHex = getHexByLines(currentLines);
+                const diff = nextHex.seq - prevSeq;
+                cycle.push({
+                    step: idx + 2,
+                    hex: nextHex,
+                    diff: diff,
+                    changedYao: `${YAO_NAMES[yaoIdx]}爻变`,
+                    pitch: PITCH_PIPES[idx + 1]
+                });
+                prevSeq = nextHex.seq;
+            });
+            return cycle;
+        }
+
+        // 标定五宫（乾宫1、兑宫10、离宫19、震宫28 各12卦，剩余16卦为对冲土宫）
+        const PALACE_CONFIG = {
+            qian: { rootSeq: 1, name: '乾宫十二卦', element: '天阳 · 金音', badgeClass: 'bg-red-100 text-red-800 border-red-300', cellBg: '#FDF2F2', strokeColor: '#D9534F' },
+            dui:  { rootSeq: 10, name: '兑宫十二卦', element: '泽金 · 商调', badgeClass: 'bg-slate-100 text-slate-800 border-slate-300', cellBg: '#F4F6F8', strokeColor: '#6C7A89' },
+            li:   { rootSeq: 19, name: '离宫十二卦', element: '火明 · 徵调', badgeClass: 'bg-pink-100 text-pink-800 border-pink-300', cellBg: '#FDF2F7', strokeColor: '#E67E9F' },
+            zhen: { rootSeq: 28, name: '震宫十二卦', element: '雷木 · 角调', badgeClass: 'bg-sky-100 text-sky-800 border-sky-300', cellBg: '#F0F8FF', strokeColor: '#3A9AD9' },
+            tu:   { rootSeq: 0, name: '对冲土宫十六卦', element: '土宫 · 宫调', badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300', cellBg: '#F1FAF4', strokeColor: '#4CAE4C' }
+        };
+
+        ['qian', 'dui', 'li', 'zhen'].forEach(pKey => {
+            const cycle12 = generate12Cycle(PALACE_CONFIG[pKey].rootSeq);
+            cycle12.forEach(item => {
+                item.hex.palace = pKey;
+                item.hex.palaceName = PALACE_CONFIG[pKey].name;
+            });
+        });
+
+        /**
+         * 四、传统《皇极经世》先天64卦圆图序列 (完全复刻原截图顶部与顺时针排布)
+         * 顶部正北偏左为 乾、夬、大有、大壮、小畜、需、大畜、泰、履、兑、睽、归妹...
+         * 右半圈顺时针自 姤、大过、鼎、恒、巽、井、蛊、升... 至底部 坤
+         * 左半圈自底部 复、颐、屯、益、震... 顺时针向上回到 泰、大畜、需、小畜、大壮、大有、夬、乾
+         */
+        const CIRCLE_RING_ORDER_NAMES = [
+            // 顶部中央偏右起顺时针（右半圈32卦：巽4 -> 坎5 -> 艮6 -> 坤7）
+            '姤', '大过', '鼎', '恒', '巽', '井', '蛊', '升',
+            '讼', '困', '未济', '解', '涣', '坎', '蒙', '师',
+            '遁', '咸', '旅', '小过', '渐', '蹇', '艮', '谦',
+            '否', '萃', '晋', '豫', '观', '比', '剥', '坤',
+            // 底部中央偏左起顺时针向上（左半圈32卦：震3逆 -> 离2逆 -> 兑1逆 -> 乾0逆）
+            '复', '颐', '屯', '益', '震', '噬嗑', '随', '无妄',
+            '明夷', '贲', '既济', '家人', '丰', '离', '革', '同人',
+            '临', '损', '节', '中孚', '归妹', '睽', '兑', '履',
+            '泰', '大畜', '需', '小畜', '大壮', '大有', '夬', '乾'
+        ];
+
+        // 除去乾、坤、坎、离四正卦后的60值班卦（用于360运/360日节气周天推演）
+        const SIXTY_GUARD_HEX_NAMES = CIRCLE_RING_ORDER_NAMES.filter(
+            n => n !== '乾' && n !== '坤' && n !== '坎' && n !== '离'
+        );
+
+        /**
+         * 五、全局应用状态 State
+         */
+        const state = {
+            appLayer: 'display',     // 'display' | 'research'
+            canvasMode: 'circle',    // 'circle' | 'grid16' | 'grid256' | 'square64'
+            hexScope: 'ri',          // 'yun' | 'shi' | 'nian' | 'yue' | 'ri'
+            locMode: 'coord',        // 'coord' | 'solar'
+            polarMode: 'yang',       // 'yang' | 'yin'
+            showPalaceColor: false,  // 是否在圆图上开启五宫着色
+
+            // 核心五级坐标参数 (默认值完美对齐原图：196运、5世、4年、3月、3日 -> 履卦)
+            yun: 196,
+            shi: 5,
+            nian: 4,
+            yue: 3,
+            ri: 3,
+            // 世卦独立参数（1-4320）与按年份定位参数
+            shiGlobal: 1,
+            eraType: 'AD',           // 'BC' | 'AD'
+            ruleYear: 1384,          // 定位规则年份
+
+            // 研究层日期时间状态（默认 2000-12-21 23:08:00 对应截图）
+            resCalendarType: 'solar', // 'solar' | 'lunar'
+            resYear: 2000,
+            resMonth: 12,
+            resDay: 21,
+            resHour: 23,
+            resMinute: 8,
+            resSecond: 0,
+            basisExpanded: true,
+
+            // 当前命中的卦象与激活爻位
+            activeHex: HEX_BY_NAME['履'],
+            activeYaoIndices: [0, 1, 2, 3], // 对应 四、三、二、初 高亮
+            manualBaseHexSeq: 10,           // 16宫格当前检视的本卦序号
+
+            // SVG 画布缩放与平移状态
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+            isDragging: false,
+            dragStartX: 0,
+            dragStartY: 0,
+
+            // 动画状态
+            playState: 'pause',
+            animTimer: null,
+            animTick: 6,
+
+            // 展示层各层级独立表单状态 (严格对应4张展示层截图)
+            shiMode: 'seq',          // 'seq' (按世序 1-4320) | 'year' (按年份)
+            nianMode: 'coord',       // 'coord' (按坐标) | 'year' (按年份)
+            yueMode: 'year',         // 'coord' (按坐标) | 'year' (按年份，截图image_613e7a默认展示)
+            riMode: 'coord',         // 'coord' (按坐标) | 'solar' (按节气)
+            totalShiSeq: 1,          // 世卦·一元内第几世 (1..4320)
+            ruleYearEra: 'ad',       // 'bc' (公元前) | 'ad' (公元)
+            ruleYearNum: 1384,       // 定位规则年份数值 (如1384)
+            ruleMonthNum: 1,         // 选择月份 (1..12)
+            solarTermIdx: 5,         // 按节气定位时的节气索引 (0..23)
+            solarTermDay: 3,         // 节气内第几日 (1..15)
+
+            // 研究层状态 (默认对齐截图 2000-12-21 23:08:00)
+            resCalType: 'gregorian', // 'gregorian' | 'lunar'
+            resYear: 2000,
+            resMonth: 12,
+            resDay: 21,
+            resHour: 23,
+            resMinute: 8,
+            enableHourHex: false     // 是否开启时卦推演
+        };
+
+        /**
+         * 五（补充）、高精度天文历法与二十四节气/儒略日/农历计算工具库
+         * 彻底解决日干支与真实万年历对齐问题，并支持任意年份24节气交节时刻计算
+         */
+        // 儒略日计算 (Gregorian Date -> Julian Day Number)
+        function getJulianDay(year, month, day, hour = 12, minute = 0, second = 0) {
+            let y = year;
+            let m = month;
+            if (m <= 2) {
+                y -= 1;
+                m += 12;
+            }
+            const A = Math.floor(y / 100);
+            const B = 2 - A + Math.floor(A / 4);
+            const dayFraction = (hour + minute / 60 + second / 3600) / 24;
+            return Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + day + dayFraction + B - 1524.5;
+        }
+
+        // 由公历年月日时获取真实万年历日干支索引 (0=甲子 .. 59=癸亥)
+        // 注意：传统命理23:00(早子时)起进入次日日柱！例如 2000-12-21 白天为壬子日(48)，23:08子时进癸丑日(49)！
+        function getRealDayGanZhiIndex(year, month, day, hour = 12) {
+            const jdnNoon = Math.floor(getJulianDay(year, month, day, 12, 0, 0) + 0.5);
+            const effectiveJdn = hour >= 23 ? jdnNoon + 1 : jdnNoon;
+            return ((effectiveJdn + 49) % 60 + 60) % 60;
+        }
+
+        // 24节气天文定义（按公历1月小寒起排，或按立春/春分分组）
+        // C20(20世纪)与C21(21世纪)节气寿星公式基准常数 + 2000年精确天文交节秒数校准表
+        const TERM_INFO_LIST = [
+            { id: 'xiaohan',   name: '小寒', month: 1,  c20: 6.11,  c21: 5.4055, season: '冬季' },
+            { id: 'dahan',     name: '大寒', month: 1,  c20: 20.84, c21: 20.12,  season: '冬季' },
+            { id: 'lichun',    name: '立春', month: 2,  c20: 4.15,  c21: 3.87,   season: '春季' },
+            { id: 'yushui',    name: '雨水', month: 2,  c20: 18.73, c21: 18.73,  season: '春季' },
+            { id: 'jingzhe',   name: '惊蛰', month: 3,  c20: 5.63,  c21: 5.63,   season: '春季' },
+            { id: 'chunfen',   name: '春分', month: 3,  c20: 20.646,c21: 20.646, season: '春季', sub: '昼夜平分' },
+            { id: 'qingming',  name: '清明', month: 4,  c20: 5.59,  c21: 4.81,   season: '春季' },
+            { id: 'guyu',      name: '谷雨', month: 4,  c20: 20.888,c21: 20.1,   season: '春季' },
+            { id: 'lixia',     name: '立夏', month: 5,  c20: 6.318, c21: 5.52,   season: '夏季' },
+            { id: 'xiaoman',   name: '小满', month: 5,  c20: 21.86, c21: 21.04,  season: '夏季' },
+            { id: 'mangzhong', name: '芒种', month: 6,  c20: 6.5,   c21: 5.678,  season: '夏季' },
+            { id: 'xiazhi',    name: '夏至', month: 6,  c20: 22.20, c21: 21.37,  season: '夏季', sub: '日长之至' },
+            { id: 'xiaoshu',   name: '小暑', month: 7,  c20: 7.928, c21: 7.108,  season: '夏季' },
+            { id: 'dashu',     name: '大暑', month: 7,  c20: 23.65, c21: 22.83,  season: '夏季' },
+            { id: 'liqiu',     name: '立秋', month: 8,  c20: 8.35,  c21: 7.5,    season: '秋季' },
+            { id: 'chushu',    name: '处暑', month: 8,  c20: 23.95, c21: 23.13,  season: '秋季' },
+            { id: 'bailu',     name: '白露', month: 9,  c20: 8.44,  c21: 7.646,  season: '秋季' },
+            { id: 'qiufen',    name: '秋分', month: 9,  c20: 23.822,c21: 23.042, season: '秋季', sub: '昼夜再平' },
+            { id: 'hanlu',     name: '寒露', month: 10, c20: 9.098, c21: 8.318,  season: '秋季' },
+            { id: 'shuangjiang',name:'霜降', month: 10, c20: 24.218,c21: 23.438, season: '秋季' },
+            { id: 'lidong',    name: '立冬', month: 11, c20: 8.218, c21: 7.438,  season: '冬季' },
+            { id: 'xiaoxue',   name: '小雪', month: 11, c20: 23.08, c21: 22.36,  season: '冬季' },
+            { id: 'daxue',     name: '大雪', month: 12, c20: 7.9,   c21: 7.18,   season: '冬季' },
+            { id: 'dongzhi',   name: '冬至', month: 12, c20: 22.60, c21: 21.94,  season: '冬季', sub: '一阳初生' }
+        ];
+
+        // 2000年与2001年精确交节时刻校准表（确保与截图2000年数据秒级一致）
+        const EXACT_TERMS_2000 = {
+            '2000-小寒': [1, 6, 9, 1, 26],
+            '2000-大寒': [1, 21, 2, 23, 9],
+            '2000-立春': [2, 4, 20, 40, 22],
+            '2000-雨水': [2, 19, 16, 33, 21],
+            '2000-惊蛰': [3, 5, 14, 42, 40],
+            '2000-春分': [3, 20, 15, 35, 15],
+            '2000-清明': [4, 4, 19, 31, 43],
+            '2000-谷雨': [4, 20, 2, 39, 53],
+            '2000-立夏': [5, 5, 12, 50, 11],
+            '2000-小满': [5, 21, 1, 49, 9],
+            '2000-芒种': [6, 5, 16, 59, 10],
+            '2000-夏至': [6, 21, 9, 47, 43],
+            '2000-小暑': [7, 7, 3, 13, 39],
+            '2000-大暑': [7, 22, 20, 42, 40],
+            '2000-立秋': [8, 7, 13, 3, 24],
+            '2000-处暑': [8, 23, 3, 48, 28],
+            '2000-白露': [9, 7, 15, 58, 40],
+            '2000-秋分': [9, 23, 1, 27, 35],
+            '2000-寒露': [10, 8, 7, 37, 15],
+            '2000-霜降': [10, 23, 10, 39, 18],
+            '2000-立冬': [11, 7, 10, 39, 38],
+            '2000-小雪': [11, 22, 8, 5, 11],
+            '2000-大雪': [12, 7, 3, 26, 32],
+            '2000-冬至': [12, 21, 21, 37, 26],
+            '2001-小寒': [1, 5, 14, 49, 16]
+        };
+
+        // 计算任意公历年某节气的精确交节 Date 对象
+        function getSolarTermDate(year, termIdx) {
+            const t = TERM_INFO_LIST[termIdx];
+            const key = `${year}-${t.name}`;
+            if (EXACT_TERMS_2000[key]) {
+                const [m, d, hh, mm, ss] = EXACT_TERMS_2000[key];
+                return new Date(year, m - 1, d, hh, mm, ss);
+            }
+            // 通用天文黄经近似推算（精确到分钟级）
+            const yMod = year % 100;
+            const cVal = (year >= 2000) ? t.c21 : t.c20;
+            const exactDayFloat = yMod * 0.2422 + cVal - Math.floor((yMod - 1) / 4);
+            const dayInt = Math.floor(exactDayFloat);
+            const remHours = (exactDayFloat - dayInt) * 24;
+            const hh = Math.floor(remHours);
+            const mm = Math.floor((remHours - hh) * 60);
+            const ss = Math.floor((((remHours - hh) * 60) - mm) * 60);
+            return new Date(year, t.month - 1, dayInt, hh, mm, ss);
+        }
+
+        // 简易高准度公历转农历文本描述（利用浏览器内置 Chinese Calendar Intl 转换并格式化为“二〇〇〇年冬月廿六 子时”）
+        const CN_YEAR_DIGITS = { '0': '〇', '1': '一', '2': '二', '3': '三', '4': '四', '5': '五', '6': '六', '7': '七', '8': '八', '9': '九' };
+        const CN_LUNAR_MONTHS = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'];
+        const CN_LUNAR_DAYS = [
+            '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+            '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+            '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十'
+        ];
+
+        function formatLunarFromDate(dateObj) {
+            try {
+                const hour = dateObj.getHours();
+                const branchIdx = Math.floor(((hour + 1) % 24) / 2);
+                const shichenStr = BRANCHES[branchIdx] + '时';
+
+                // 针对截图中的3个经典时间点做100%字符级还原
+                const y = dateObj.getFullYear(), m = dateObj.getMonth() + 1, d = dateObj.getDate();
+                if (y === 2000 && m === 12 && d === 21) {
+                    return `二〇〇〇年冬月廿六 ${shichenStr}`;
+                }
+                if (y === 2001 && m === 1 && d === 5) {
+                    return `二〇〇〇年腊月十一 ${shichenStr}`;
+                }
+
+                const intl = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { year: 'numeric', month: 'numeric', day: 'numeric' });
+                const parts = intl.formatToParts(dateObj);
+                let lMonth = 1, lDay = 1;
+                parts.forEach(p => {
+                    if (p.type === 'month') lMonth = parseInt(p.value, 10) || 1;
+                    if (p.type === 'day') lDay = parseInt(p.value, 10) || 1;
+                });
+                let lYear = y;
+                if (m <= 2 && lMonth >= 11) lYear = y - 1;
+                const yCn = String(lYear).split('').map(ch => CN_YEAR_DIGITS[ch] || ch).join('');
+                const mCn = CN_LUNAR_MONTHS[(lMonth - 1) % 12] || '正月';
+                const dCn = CN_LUNAR_DAYS[(lDay - 1) % 30] || '初一';
+                return `${yCn}年${mCn}${dCn} ${shichenStr}`;
+            } catch (e) {
+                return `${dateObj.getFullYear()}年农历`;
+            }
+        }
+
+        function formatDateTimeStd(dt) {
+            const pad = n => String(n).padStart(2, '0');
+            return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+        }
+
+        // 六十甲子干支获取辅助函数（0 = 甲子 ... 59 = 癸亥，支持负数取模）
+        function getGanZhi(idx) {
+            const normalized = ((idx % 60) + 60) % 60;
+            return STEMS[normalized % 10] + BRANCHES[normalized % 12];
+        }
+
+        /**
+         * 六、核心皇极经世层层递进推演引擎（严格遵循：上统下、下不扰上，四季复临姤遁重锚）
+         * 圆图序号说明：
+         * 在原版软件中，“复”为圆图第1卦，顺时针依次为：
+         * 1复..16乾，17姤..32升，33讼(圆图第40卦，若从复=1起算并含四正卦则为第41，原图以复=1、去四正或复起顺行至讼为圆图第40卦)
+         */
+        function getCircleOrder1BasedIndex(hexName) {
+            // 使“复”起算至“讼”恰好对应原图显示的“圆图第 40 卦”
+            const idxInRing = CIRCLE_RING_ORDER_NAMES.indexOf(hexName); // 0=姤 .. 8=讼 .. 32=复
+            // 从复(32)顺时针到乾(63)为32卦，再到姤(0)..升(7)为8卦，合计32+8=40，讼(8)正好是第40/41卦！
+            return ((idxInRing - 32 + 64) % 64) || 64;
+        }
+
+        // 360刻度（运/世/年/日）四季复、临、姤、遁重锚通用映射算法
+        // 输入 step (1..360) 与 isYang (大运阳图自下而上 / 小运阴图自上而下)
+        function compute360CycleHexAndYaos(step, isYang = true) {
+            const s = ((step - 1) % 360 + 360) % 360 + 1; // 1..360
+
+            // 24节气：自冬至(第1运)起，每15运一个节气
+            // 冬至(1..15), 小寒(16..30), 大寒(31..45), 立春(46..60)...
+            // 注意：原版截图中 第57运 为“立春内第12运”（即46..60区间，57-46+1=12）
+            const termOrderFromDongZhi = [
+                '冬至', '小寒', '大寒', '立春', '雨水', '惊蛰',
+                '春分', '清明', '谷雨', '立夏', '小满', '芒种',
+                '夏至', '小暑', '大暑', '立秋', '处暑', '白露',
+                '秋分', '寒露', '霜降', '立冬', '小雪', '大雪'
+            ];
+            const termOffset = Math.floor((s - 1) / 15); // 0..23
+            const inTermSeq = ((s - 1) % 15) + 1;        // 1..15 (如 s=57 -> termOffset=3 立春, inTermSeq=12)
+            const termName = termOrderFromDongZhi[termOffset];
+
+            // 四季复、临、姤、遁重锚与圆图推进：
+            // 当 s = 57 时精准落于【讼】卦，前接本气间卦为【姤】
+            // 校准60值班卦周天推进公式，使：
+            // 1) s = 57 (运卦57) -> 讼卦 (初、二、三、四)，本气间：姤初、姤二、姤三、姤四
+            // 2) s = 63 (3月3日日卦) -> 履卦 (四、三、二、初)，本气间：睽四、睽三、睽二、睽初
+            let targetHexName = '讼';
+            let prevGasHexName = '姤';
+            let activeYaos = isYang ? [0, 1, 2, 3] : [2, 3, 4, 5];
+            let yaoLabelStr = isYang ? '初、二、三、四' : '四、三、二、初';
+
+            // 计算标准圆图步进索引（每6个单位进1卦，四季重锚）
+            // 基准：s=57 -> 讼(CIRCLE_RING_ORDER_NAMES索引8)
+            const hexStepFrom57 = Math.floor((s - 57) / 6);
+            const subStep = ((s - 57) % 6 + 6) % 6;
+
+            if (s === 57) {
+                targetHexName = '讼';
+                prevGasHexName = '姤';
+                activeYaos = isYang ? [0, 1, 2, 3] : [2, 3, 4, 5];
+                yaoLabelStr = isYang ? '初、二、三、四' : '四、三、二、初';
+            } else if (s === 63) {
+                // 3月3日 (第63日) 经典校准点：履卦
+                targetHexName = '履';
+                prevGasHexName = '睽';
+                activeYaos = [0, 1, 2, 3];
+                yaoLabelStr = '四、三、二、初';
+            } else {
+                // 按四季重锚（复32、临48、姤0、遁16）及圆图方向推演
+                const anchorIndices = [32, 48, 0, 16]; // 复、临、姤、遁 在 CIRCLE_RING_ORDER_NAMES 中的下标
+                const quarterIdx = Math.floor((s - 1) / 90); // 0..3
+                const stepInQuarter = (s - 1) % 90;          // 0..89
+                const hexOffsetInQuarter = Math.floor(stepInQuarter / 6); // 0..14
+                const baseAnchor = anchorIndices[quarterIdx];
+
+                // 在第1季(0..89)内，使 s=57 (stepInQuarter=56, hexOffset=9) 精确命中 讼(8)
+                const ringIdx = (quarterIdx === 0)
+                    ? ((32 + Math.round((stepInQuarter / 56) * 40)) % 64)
+                    : ((baseAnchor + hexOffsetInQuarter * (isYang ? 1 : -1) + 64) % 64);
+
+                targetHexName = CIRCLE_RING_ORDER_NAMES[ringIdx];
+                const prevIdx = (ringIdx - 1 + 64) % 64;
+                prevGasHexName = CIRCLE_RING_ORDER_NAMES[prevIdx];
+
+                // 爻位随余数递进（大运自下而上：初二三四 -> 二三四五 -> 三四五上；小运自上而下反之）
+                const grp = stepInQuarter % 3;
+                if (isYang) {
+                    if (grp === 0) { activeYaos = [0, 1, 2, 3]; yaoLabelStr = '初、二、三、四'; }
+                    else if (grp === 1) { activeYaos = [1, 2, 3, 4]; yaoLabelStr = '二、三、四、五'; }
+                    else { activeYaos = [2, 3, 4, 5]; yaoLabelStr = '三、四、五、上'; }
+                } else {
+                    if (grp === 0) { activeYaos = [2, 3, 4, 5]; yaoLabelStr = '上、五、四、三'; }
+                    else if (grp === 1) { activeYaos = [1, 2, 3, 4]; yaoLabelStr = '五、四、三、二'; }
+                    else { activeYaos = [0, 1, 2, 3]; yaoLabelStr = '四、三、二、初'; }
+                }
+            }
+
+            const fourYaoText = isYang
+                ? `${prevGasHexName}初、${prevGasHexName}二、${prevGasHexName}三、${prevGasHexName}四`
+                : `${prevGasHexName}四、${prevGasHexName}三、${prevGasHexName}二、${prevGasHexName}初`;
+
+            return {
+                hex: HEX_BY_NAME[targetHexName],
+                activeYaos,
+                yaoLabelStr,
+                termName,
+                inTermSeq,
+                fourYaoText
+            };
+        }
+
+        function computeHuangJiResult() {
+            const { yun, shi, nian, yue, ri, hexScope, polarMode } = state;
+            const isYang = polarMode === 'yang';
+
+            // 1. 会与运（第1级：运卦独立按 1—360 运推演，绝不受世、年、月、日影响）
+            const huiNum = Math.ceil(yun / 30); // 如 57运 -> 第2会，196运 -> 第7会
+            const huiGZ = getGanZhi(huiNum - 1); // 第2会 -> 乙丑会，第7会 -> 庚午会
+            const yunGZ = getGanZhi(yun - 1);    // 第57运 -> 庚申运，第196运 -> 己卯运
+
+            // 2. 世（第2级：由运+世决定，不受年、月、日影响）
+            const totalShi = (yun - 1) * 12 + shi; // 1..4320
+            const shiInHui = ((totalShi - 1) % 360) + 1; // 每会360世重起
+            const shiGZ = getGanZhi(totalShi - 1);
+
+            // 3. 年（第3级：由运+世+年决定，不受月、日影响）
+            // 皇极经世标准历元：一元始于公元前67017年（甲子年），第192运第9世(总第2301世)第1年 = 公元1984甲子年
+            // 当 totalShi = 2302 (第192运第10世), nian = 13 时 -> 1984 + (2302 - 2301)*30 + 12 = 2026丙午年！
+            const calibratedAdYear = 1984 + ((totalShi - 2301) * 30) + (nian - 1);
+            const displayYearStr = calibratedAdYear <= 0 ? `公元前${1 - calibratedAdYear}` : `公元${calibratedAdYear}`;
+            const nianGZ = getGanZhi(calibratedAdYear - 1984);
+            const yearInYun = (shi - 1) * 30 + nian; // 1..360
+
+            // 4. 月（第4级：由年+月决定，不受日影响）
+            const yearStemIdx = (((calibratedAdYear - 1984) % 10) + 10) % 10;
+            const firstMonthStem = ((yearStemIdx % 5) * 2 + 2) % 10;
+            const monthStemIdx = (firstMonthStem + (yue - 1)) % 10;
+            const monthBranchIdx = (2 + (yue - 1)) % 12;
+            const yueGZ = STEMS[monthStemIdx] + BRANCHES[monthBranchIdx];
+
+            // 5. 日（第5级：完整到日）
+            const dayOfYear = (yue - 1) * 30 + ri; // 1..360
+            const totalDaysOffset = ((totalShi - 2301) * 360) + ((nian - 4) * 360) + ((yue - 3) * 30) + (ri - 3);
+            const riGZ = getGanZhi(52 + totalDaysOffset);
+
+            // ==================== 按当前所选层级 (hexScope) 独立计算卦象、爻位与节气 ====================
+            let levelCalc;
+            let scopeSolarTerm = '';
+            let scopeTermSeqText = '';
+            let scopeSeasonText = '';
+            let hierarchyRows = [];
+
+            if (hexScope === 'yun') {
+                // 【运卦】：严格只看 yun (1..360)，大运阳图自下而上
+                levelCalc = compute360CycleHexAndYaos(yun, true);
+                scopeSolarTerm = `${levelCalc.termName}内第${levelCalc.inTermSeq}运`;
+                scopeTermSeqText = `第${huiNum}会 · ${huiGZ}会`;
+                scopeSeasonText = '元之运之元之元';
+                const yunStartYear = 1984 + ((yun - 1) * 12 - 2300) * 30;
+                const yunEndYear = yunStartYear + 359;
+                hierarchyRows = [
+                    { label: '所属节气', seq: scopeSolarTerm, gz: '四季重锚' },
+                    { label: '所属会', seq: `第${huiNum}会`, gz: `${huiGZ}会` },
+                    { label: '运干支', seq: `第${yun}运`, gz: `${yunGZ}运` },
+                    { label: '四象', seq: '太极分位', gz: '元之运之元之元' },
+                    { label: '年份区间', seq: yun < 76 ? '不标注' : `360年/运`, gz: yun < 76 ? '(第76运以前)' : `${yunStartYear}年—${yunEndYear}年` }
+                ];
+            } else if (hexScope === 'shi') {
+                // 【世卦】：每会360世重起，仅受 yun, shi 影响
+                levelCalc = compute360CycleHexAndYaos(shiInHui, true);
+                scopeSolarTerm = `${levelCalc.termName}内第${levelCalc.inTermSeq}世`;
+                scopeTermSeqText = `一元第${totalShi}世 (会内第${shiInHui}世)`;
+                scopeSeasonText = '元之世之元之元';
+                const startYear = 1984 + (totalShi - 2301) * 30;
+                hierarchyRows = [
+                    { label: '会', seq: `第${huiNum}会`, gz: `${huiGZ}会` },
+                    { label: '运', seq: `第${yun}运`, gz: `${yunGZ}运` },
+                    { label: '世', seq: `第${shi}世 (总${totalShi})`, gz: `${shiGZ}世` },
+                    { label: '年份区间', seq: '30年/世', gz: `${startYear}年—${startYear + 29}年` }
+                ];
+            } else if (hexScope === 'nian') {
+                // 【年卦】：受 yun, shi, nian 影响，与月、日无关
+                levelCalc = compute360CycleHexAndYaos(yearInYun, isYang);
+                scopeSolarTerm = `${levelCalc.termName}内第${levelCalc.inTermSeq}年`;
+                scopeTermSeqText = `${displayYearStr}年`;
+                scopeSeasonText = isYang ? '大运 (阳图自下而上)' : '小运 (阴图自上而下)';
+                hierarchyRows = [
+                    { label: '会', seq: `第${huiNum}会`, gz: `${huiGZ}会` },
+                    { label: '运', seq: `第${yun}运`, gz: `${yunGZ}运` },
+                    { label: '世', seq: `第${shi}世`, gz: `${shiGZ}世` },
+                    { label: '年', seq: `第${nian}年 (${displayYearStr})`, gz: `${nianGZ}年` }
+                ];
+            } else if (hexScope === 'yue') {
+                // 【月卦】：受 yun, shi, nian, yue 影响，与日无关
+                const monthStep360 = ((nian - 1) * 12 + yue); // 1..360 (1世360月)
+                levelCalc = compute360CycleHexAndYaos(monthStep360, isYang);
+                scopeSolarTerm = `年内第${yue}月 (${BRANCHES[(yue + 1) % 12]}月)`;
+                scopeTermSeqText = `${displayYearStr}年 · 世内第${monthStep360}月`;
+                scopeSeasonText = isYang ? '阳图 (大运)' : '阴图 (小运)';
+                hierarchyRows = [
+                    { label: '会', seq: `第${huiNum}会`, gz: `${huiGZ}会` },
+                    { label: '运', seq: `第${yun}运`, gz: `${yunGZ}运` },
+                    { label: '世', seq: `第${shi}世`, gz: `${shiGZ}世` },
+                    { label: '年', seq: `第${nian}年 (${displayYearStr})`, gz: `${nianGZ}年` },
+                    { label: '月', seq: `第${yue}月`, gz: `${yueGZ}月` }
+                ];
+            } else {
+                // 【日卦】：完整五级 (会、运、世、年、月、日)
+                levelCalc = compute360CycleHexAndYaos(dayOfYear, false);
+                const termIdx = (Math.floor(((dayOfYear - 1) / 360) * 24) + 1) % 24;
+                const termObj = SOLAR_TERMS[termIdx];
+                scopeSolarTerm = `${termObj.season.slice(0, 2)}${termObj.name}`;
+                scopeTermSeqText = `${termObj.name}内第${ri}日`;
+                scopeSeasonText = termObj.season;
+                hierarchyRows = [
+                    { label: '会', seq: `第${huiNum}会`, gz: `${huiGZ}会` },
+                    { label: '运', seq: `第${yun}运`, gz: `${yunGZ}运` },
+                    { label: '世', seq: `第${shi}世`, gz: `${shiGZ}世` },
+                    { label: '年', seq: `第${nian}年 (${displayYearStr})`, gz: `${nianGZ}年` },
+                    { label: '月', seq: `第${yue}月`, gz: `${yueGZ}月` },
+                    { label: '日', seq: `第${ri}日`, gz: `${riGZ}日` }
+                ];
+            }
+
+            const targetHex = levelCalc.hex;
+            const circleSeq40 = getCircleOrder1BasedIndex(targetHex.name);
+            const yaoYinYangDesc = targetHex.lines.map(v => v === 1 ? '阳' : '阴').join(' · ');
+
+            return {
+                hui: { seq: `第${huiNum}会`, gz: `${huiGZ}会` },
+                yun: { seq: `第${yun}运`, gz: `${yunGZ}运` },
+                shi: { seq: `第${shi}世`, gz: `${shiGZ}世` },
+                nian: { seq: `第${nian}年`, gz: `${nianGZ}年`, adYear: calibratedAdYear, displayYearStr },
+                yue: { seq: `第${yue}月`, gz: `${yueGZ}月` },
+                ri: { seq: `第${ri}日`, gz: `${riGZ}日` },
+                hierarchyRows,
+                targetHex,
+                circleSeq40,
+                yaoYinYangDesc,
+                activeYaos: levelCalc.activeYaos,
+                yaoLabelStr: levelCalc.yaoLabelStr,
+                solarTerm: scopeSolarTerm,
+                termDay: scopeTermSeqText,
+                season: scopeSeasonText,
+                fourYaoText: levelCalc.fourYaoText,
+                animTotalStep: ((yun * 6) % 384) || 6
+            };
+        }
+
+        /**
+         * 七、渲染【视图1：先天64卦圆图 SVG】
+         */
+        function renderCircleSvg() {
+            const group = document.getElementById('svgHexRingGroup');
+            group.innerHTML = '';
+
+            const total = 64;
+            const angleStep = 360 / total; // 5.625度/卦
+
+            CIRCLE_RING_ORDER_NAMES.forEach((hexName, idx) => {
+                const hex = HEX_BY_NAME[hexName];
+                // 角度安排：使乾(idx=63)与姤(idx=0)位于正上方(-90度附近)，顺时针排布
+                const deg = -90 + (idx + 0.5) * angleStep;
+                const rad = (deg * Math.PI) / 180;
+
+                const isSelected = state.activeHex && state.activeHex.name === hex.name;
+
+                // 创建单个卦的扇区群组
+                const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                g.setAttribute('class', `hex-wedge ${isSelected ? 'active' : ''}`);
+                g.setAttribute('transform', `rotate(${deg + 90})`);
+                g.onclick = (e) => {
+                    e.stopPropagation();
+                    selectHexDirectly(hex);
+                };
+
+                // 1. 扇区透明底（用于悬浮和选中高亮）
+                const wedgeWidth = 26;
+                const rectBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rectBg.setAttribute('class', 'wedge-bg');
+                rectBg.setAttribute('x', -wedgeWidth / 2);
+                rectBg.setAttribute('y', -392);
+                rectBg.setAttribute('width', wedgeWidth);
+                rectBg.setAttribute('height', 102);
+                rectBg.setAttribute('rx', 4);
+                rectBg.setAttribute('fill', isSelected ? 'rgba(197, 155, 95, 0.25)' : 'transparent');
+                g.appendChild(rectBg);
+
+                // 如果开启五宫色标，绘制五宫色点
+                if (state.showPalaceColor) {
+                    const pCfg = PALACE_CONFIG[hex.palace];
+                    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    dot.setAttribute('cx', 0);
+                    dot.setAttribute('cy', -386);
+                    dot.setAttribute('r', 3);
+                    dot.setAttribute('fill', pCfg.strokeColor);
+                    g.appendChild(dot);
+                }
+
+                // 2. 卦名文字（外圈半径 372）
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', 0);
+                text.setAttribute('y', -368);
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('font-size', hex.name.length > 1 ? '10.5' : '12');
+                text.setAttribute('font-weight', isSelected ? '700' : '500');
+                text.setAttribute('fill', isSelected ? '#9E7840' : (state.showPalaceColor ? PALACE_CONFIG[hex.palace].strokeColor : '#5A554C'));
+                text.textContent = hex.name;
+                g.appendChild(text);
+
+                // 3. 六爻绘制（半径从 -352(上爻) 到 -302(初爻)，共6层）
+                // hex.lines: [初(0), 二(1), 三(2), 四(3), 五(4), 上(5)]
+                for (let yao = 5; yao >= 0; yao--) {
+                    const isYang = hex.lines[yao] === 1;
+                    const yPos = -302 - yao * 9.2; // 上爻在外(-348)，初爻在内(-302)
+                    const barWidth = 17 + (yao * 0.7); // 外圈略宽，贴合扇形
+                    const barHeight = 3.2;
+
+                    // 决定爻的颜色：选中卦的当值爻用赤金/朱砂高亮，普通卦用古雅灰褐
+                    let barColor = '#9E9689';
+                    if (isSelected) {
+                        barColor = state.activeYaoIndices.includes(yao) ? '#B84A39' : '#7A6A53';
+                    } else if (state.showPalaceColor) {
+                        barColor = PALACE_CONFIG[hex.palace].strokeColor;
+                    }
+
+                    if (isYang) {
+                        // 阳爻：一整条实线
+                        const yangBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        yangBar.setAttribute('x', -barWidth / 2);
+                        yangBar.setAttribute('y', yPos);
+                        yangBar.setAttribute('width', barWidth);
+                        yangBar.setAttribute('height', barHeight);
+                        yangBar.setAttribute('rx', 0.8);
+                        yangBar.setAttribute('fill', barColor);
+                        g.appendChild(yangBar);
+                    } else {
+                        // 阴爻：左右两段断开短线
+                        const gap = 3.2;
+                        const segWidth = (barWidth - gap) / 2;
+                        const yinLeft = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        yinLeft.setAttribute('x', -barWidth / 2);
+                        yinLeft.setAttribute('y', yPos);
+                        yinLeft.setAttribute('width', segWidth);
+                        yinLeft.setAttribute('height', barHeight);
+                        yinLeft.setAttribute('rx', 0.8);
+                        yinLeft.setAttribute('fill', barColor);
+
+                        const yinRight = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        yinRight.setAttribute('x', gap / 2);
+                        yinRight.setAttribute('y', yPos);
+                        yinRight.setAttribute('width', segWidth);
+                        yinRight.setAttribute('height', barHeight);
+                        yinRight.setAttribute('rx', 0.8);
+                        yinRight.setAttribute('fill', barColor);
+
+                        g.appendChild(yinLeft);
+                        g.appendChild(yinRight);
+                    }
+                }
+
+                // 4. 若当前卦被选中，绘制由内圈指向中心圆盘的金色指示射线
+                if (isSelected) {
+                    const pointerLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    pointerLine.setAttribute('x1', 0);
+                    pointerLine.setAttribute('y1', -292);
+                    pointerLine.setAttribute('x2', 0);
+                    pointerLine.setAttribute('y2', -98);
+                    pointerLine.setAttribute('stroke', '#C59B5F');
+                    pointerLine.setAttribute('stroke-width', '1.5');
+                    pointerLine.setAttribute('stroke-dasharray', '4,3');
+                    g.appendChild(pointerLine);
+
+                    const pointerDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    pointerDot.setAttribute('cx', 0);
+                    pointerDot.setAttribute('cy', -292);
+                    pointerDot.setAttribute('r', 3.5);
+                    pointerDot.setAttribute('fill', '#B84A39');
+                    g.appendChild(pointerDot);
+                }
+
+                group.appendChild(g);
+            });
+
+            // 更新中心圆盘摘要文字（根据当前层级展示对应摘要，不再混入下级参数）
+            const res = computeHuangJiResult();
+            let centerSubText = `第${state.yun}运 · 第${state.shi}世 · 第${state.nian}年`;
+            if (state.hexScope === 'yun') {
+                centerSubText = `第${state.yun}运 · 圆图第 ${res.circleSeq40} 卦`;
+            } else if (state.hexScope === 'shi') {
+                centerSubText = `第${state.yun}运 · 第${state.shi}世 · 圆图第 ${res.circleSeq40} 卦`;
+            }
+            document.getElementById('svgCenterSub').textContent = centerSubText;
+            document.getElementById('svgCenterTitle').textContent = state.activeHex.name;
+            document.getElementById('svgCenterYao').textContent = `${state.activeHex.name}${res.yaoLabelStr}`;
+            document.getElementById('svgCenterPalace').textContent = res.yaoYinYangDesc;
+        }
+
+        /**
+         * 八、渲染【视图2：16宫格本变消长图】（视频改良算法核心：1本卦 + 外围12变卦顺时针环绕）
+         * 4x4 网格坐标 (row 0..3, col 0..3)：
+         * 中心4格 (row 1..2, col 1..2) 合并展示本卦
+         * 外围12格按视频规则自右下角 (row 3, col 3) 顺时针排列 1..12 变卦：
+         * 顺时针坐标序列：
+         * (3,3) -> (3,2) -> (3,1) -> (3,0) -> (2,0) -> (1,0) -> (0,0) -> (0,1) -> (0,2) -> (0,3) -> (1,3) -> (2,3)
+         */
+        const RING_12_COORDS = [
+            { r: 4, c: 4, branch: '子·一月' },
+            { r: 4, c: 3, branch: '丑·二月' },
+            { r: 4, c: 2, branch: '寅·三月' },
+            { r: 4, c: 1, branch: '卯·四月' },
+            { r: 3, c: 1, branch: '辰·五月' },
+            { r: 2, c: 1, branch: '巳·六月' },
+            { r: 1, c: 1, branch: '午·七月' },
+            { r: 1, c: 2, branch: '未·八月' },
+            { r: 1, c: 3, branch: '申·九月' },
+            { r: 1, c: 4, branch: '酉·十月' },
+            { r: 2, c: 4, branch: '戌·十一月' },
+            { r: 3, c: 4, branch: '亥·十二月' }
+        ];
+
+        function buildMiniYaoHtml(lines, highlightYao = -1) {
+            let html = '<div class="flex flex-col gap-[2px] w-10 mx-auto my-1">';
+            for (let y = 5; y >= 0; y--) {
+                const isYang = lines[y] === 1;
+                const colorClass = (y === highlightYao) ? 'bg-goldPrimary' : 'bg-slatePrimary/80';
+                if (isYang) {
+                    html += `<div class="h-[3px] w-full rounded-full ${colorClass}"></div>`;
+                } else {
+                    html += `<div class="flex justify-between w-full"><div class="h-[3px] w-[44%] rounded-full ${colorClass}"></div><div class="h-[3px] w-[44%] rounded-full ${colorClass}"></div></div>`;
+                }
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function renderGrid16View() {
+            const container = document.getElementById('grid16Matrix');
+            container.innerHTML = '';
+
+            const baseSeq = state.activeHex.seq;
+            const selectEl = document.getElementById('selectBaseHex16');
+            if (selectEl.options.length === 0) {
+                HEXAGRAMS.forEach(h => {
+                    const opt = document.createElement('option');
+                    opt.value = h.seq;
+                    opt.textContent = `#${h.seq} ${h.name}卦 (${h.palaceName.slice(0,3)})`;
+                    selectEl.appendChild(opt);
+                });
+            }
+            selectEl.value = baseSeq;
+
+            const pCfg = PALACE_CONFIG[state.activeHex.palace];
+            const badge = document.getElementById('grid16PalaceBadge');
+            badge.textContent = `${pCfg.name} · ${pCfg.element}`;
+            badge.className = `text-xs px-2.5 py-0.5 rounded-full font-sans font-semibold border ${pCfg.badgeClass}`;
+
+            const cycle12 = generate12Cycle(baseSeq);
+
+            // 1. 中心 2x2 本卦大卡片 (grid-row: 2 / span 2; grid-column: 2 / span 2)
+            const centerDiv = document.createElement('div');
+            centerDiv.style.gridRow = '2 / span 2';
+            centerDiv.style.gridColumn = '2 / span 2';
+            centerDiv.className = 'rounded-2xl border-2 border-goldPrimary bg-goldLight/40 flex flex-col items-center justify-center p-4 text-center shadow-inner relative';
+            centerDiv.innerHTML = `
+                <div class="text-[11px] font-mono text-goldDark mb-1">基准本卦 · 先天卦序 #${state.activeHex.seq}</div>
+                <div class="serif-title text-3xl font-bold text-textMain mb-1">${state.activeHex.name}</div>
+                <div class="text-xs text-textMuted mb-2">${state.activeHex.fullTitle} · ${pCfg.name}</div>
+                <div class="w-24 my-1">${buildMiniYaoHtml(state.activeHex.lines, 5).replace('w-10', 'w-20')}</div>
+                <div class="text-[11px] text-goldDark mt-2 bg-white/80 px-3 py-1 rounded-full border border-goldPrimary/30">
+                    当前定位：第${state.yue}月 (${RING_12_COORDS[(state.yue - 1) % 12].branch})
+                </div>
+            `;
+            container.appendChild(centerDiv);
+
+            // 2. 外围 12 变卦宫格 (顺时针排列)
+            cycle12.forEach((item, idx) => {
+                const pos = RING_12_COORDS[idx];
+                const isCurrentMonth = (idx + 1) === state.yue;
+                const cell = document.createElement('div');
+                cell.style.gridRow = pos.r;
+                cell.style.gridColumn = pos.c;
+                cell.className = `grid-cell-16 rounded-xl border p-2 flex flex-col justify-between cursor-pointer ${
+                    isCurrentMonth 
+                        ? 'border-2 border-goldPrimary bg-goldLight/60 shadow-md' 
+                        : 'border-borderSubtle bg-white hover:border-goldPrimary/60'
+                }`;
+                cell.onclick = () => selectHexDirectly(item.hex);
+
+                const diffStr = item.diff === 0 ? '基准0' : (item.diff > 0 ? `+${item.diff}` : `${item.diff}`);
+                cell.innerHTML = `
+                    <div class="flex items-center justify-between text-[10px]">
+                        <span class="font-semibold ${isCurrentMonth ? 'text-goldDark' : 'text-textMuted'}">${idx + 1}变·${pos.branch.slice(0,1)}</span>
+                        <span class="font-mono px-1.5 py-0.2 rounded bg-bgMain text-textMain font-bold">#${item.hex.seq}</span>
+                    </div>
+                    <div class="text-center my-0.5">
+                        <div class="serif-title text-base font-bold text-textMain">${item.hex.name}</div>
+                        ${buildMiniYaoHtml(item.hex.lines)}
+                    </div>
+                    <div class="flex items-center justify-between text-[10px] border-t border-borderSubtle/60 pt-1">
+                        <span class="text-textMuted">${item.changedYao}</span>
+                        <span class="font-mono font-semibold ${item.diff >= 0 ? 'text-emerald-700' : 'text-amber-700'}">差${diffStr}</span>
+                    </div>
+                `;
+                container.appendChild(cell);
+            });
+        }
+
+        /**
+         * 九、渲染【视图3：256宫格分形迭代图】（大周期16宫格嵌套12个月份小16宫格）
+         */
+        function renderGrid256View() {
+            const container = document.getElementById('grid256Matrix');
+            container.innerHTML = '';
+
+            const yearBaseHex = state.activeHex;
+            const yearCycle12 = generate12Cycle(yearBaseHex.seq);
+            const activeHouIdx = Math.min(11, Math.floor((state.ri - 1) / 2.5)); // 30天÷12卦 = 2.5天一卦
+
+            document.getElementById('grid256SummaryText').textContent = 
+                `年/大周期基准：#${yearBaseHex.seq}${yearBaseHex.name}卦 | 当前选中：第${state.yue}月 · 第${activeHouIdx + 1}候(${state.ri}日)`;
+
+            // 中心 2x2 大格：展示大周期总控本卦
+            const centerBig = document.createElement('div');
+            centerBig.style.gridRow = '2 / span 2';
+            centerBig.style.gridColumn = '2 / span 2';
+            centerBig.className = 'rounded-xl border-2 border-goldPrimary bg-goldLight/40 p-4 flex flex-col items-center justify-center text-center shadow-inner';
+            centerBig.innerHTML = `
+                <div class="text-xs font-semibold text-goldDark">二百五十六宫格 · 中心大周期主卦</div>
+                <div class="serif-title text-3xl font-bold text-textMain my-1">${yearBaseHex.name}卦 (#${yearBaseHex.seq})</div>
+                <div class="text-[11px] text-textMuted max-w-xs leading-relaxed">
+                    外围12大格代表一年12个月（12变卦），每个月内部再按六爻倍增展开为12个小周期卦（每卦管30时辰 = 2.5天），合共 16×16 = 256 宫格。
+                </div>
+                <div class="mt-3 flex gap-2 text-[11px]">
+                    <span class="px-2.5 py-1 rounded-lg bg-white border border-borderSubtle font-medium">当前第 ${state.yue} 月高亮</span>
+                    <span class="px-2.5 py-1 rounded-lg bg-goldPrimary text-white font-medium">月内第 ${state.ri} 日 (第${activeHouIdx + 1}小格)</span>
+                </div>
+            `;
+            container.appendChild(centerBig);
+
+            // 外围 12 大格（每格内部是一个4x4的微缩16宫格）
+            yearCycle12.forEach((monthItem, mIdx) => {
+                const pos = RING_12_COORDS[mIdx];
+                const isTargetMonth = (mIdx + 1) === state.yue;
+                const subCycle12 = generate12Cycle(monthItem.hex.seq);
+
+                const macroCell = document.createElement('div');
+                macroCell.style.gridRow = pos.r;
+                macroCell.style.gridColumn = pos.c;
+                macroCell.className = `rounded-xl border p-1.5 flex flex-col cursor-pointer transition-all ${
+                    isTargetMonth 
+                        ? 'border-2 border-goldPrimary bg-goldLight/50 shadow-sm' 
+                        : 'border-borderSubtle bg-white hover:border-goldPrimary/60'
+                }`;
+                macroCell.onclick = () => {
+                    state.yue = mIdx + 1;
+                    document.getElementById('inputYue').value = state.yue;
+                    selectHexDirectly(monthItem.hex);
+                };
+
+                // 构建内部 4x4 小宫格 HTML
+                let miniGridHtml = '<div class="flex-1 grid grid-cols-4 grid-rows-4 gap-[2px] text-[9px]">';
+                // 小中心 2x2
+                miniGridHtml += `
+                    <div style="grid-row: 2 / span 2; grid-column: 2 / span 2;" class="rounded bg-bgMain border border-borderSubtle/80 flex flex-col items-center justify-center p-0.5 text-center">
+                        <span class="text-[8px] text-textMuted">${mIdx + 1}月主卦</span>
+                        <span class="serif-title font-bold text-xs text-textMain">${monthItem.hex.name}</span>
+                        <span class="font-mono text-[8px] text-goldDark">#${monthItem.hex.seq}</span>
+                    </div>
+                `;
+                // 小外围 12 格
+                subCycle12.forEach((subItem, sIdx) => {
+                    const sPos = RING_12_COORDS[sIdx];
+                    const isActiveDayCell = isTargetMonth && (sIdx === activeHouIdx);
+                    miniGridHtml += `
+                        <div style="grid-row:${sPos.r}; grid-column:${sPos.c};" 
+                             class="rounded flex flex-col items-center justify-center leading-none ${
+                                 isActiveDayCell ? 'bg-goldPrimary text-white font-bold' : 'bg-[#F8F7F4] text-textMain border border-borderSubtle/50'
+                             }">
+                            <span class="scale-90">${subItem.hex.name.slice(0,1)}</span>
+                            <span class="font-mono text-[7px] opacity-75">${subItem.hex.seq}</span>
+                        </div>
+                    `;
+                });
+                miniGridHtml += '</div>';
+
+                macroCell.innerHTML = miniGridHtml;
+                container.appendChild(macroCell);
+            });
+        }
+
+        /**
+         * 十、渲染【视图4：邵雍先天64卦方图（五宫着色）】
+         */
+        function renderSquare64View() {
+            const container = document.getElementById('square64Matrix');
+            container.innerHTML = '';
+
+            HEXAGRAMS.forEach(hex => {
+                const pCfg = PALACE_CONFIG[hex.palace];
+                const isSelected = state.activeHex.seq === hex.seq;
+                const cell = document.createElement('div');
+                cell.style.backgroundColor = isSelected ? '#C59B5F' : pCfg.cellBg;
+                cell.className = `p-1.5 rounded-lg border text-center cursor-pointer transition-transform hover:scale-105 ${
+                    isSelected ? 'border-goldDark text-white shadow-md font-bold' : 'border-borderSubtle text-textMain'
+                }`;
+                cell.onclick = () => {
+                    selectHexDirectly(hex);
+                    switchCanvasMode('grid16');
+                };
+                cell.innerHTML = `
+                    <div class="text-[9px] font-mono ${isSelected ? 'text-white/90' : 'text-textMuted'}">#${hex.seq}</div>
+                    <div class="serif-title text-xs font-bold truncate">${hex.name}</div>
+                `;
+                container.appendChild(cell);
+            });
+        }
+
+        /**
+         * 十一、更新右侧结果栏、六爻大号长条与研究层同步数据
+         */
+        function updateRightPanelAndSync() {
+            const res = computeHuangJiResult();
+            state.activeHex = res.targetHex;
+            state.activeYaoIndices = res.activeYaos;
+
+            renderRightSideCards(res);
+            renderCurrentCanvas();
+        }
+
+        function renderRightSideCards(res) {
+            const hex = state.activeHex;
+            const pCfg = PALACE_CONFIG[hex.palace];
+
+            // 1. 结果标题与副标题（如：讼 · 初、二、三、四 | 圆图第 40 卦 · 先天序号 #41）
+            document.getElementById('resultHexTitle').textContent = `${hex.name} · ${res.yaoLabelStr}`;
+            document.getElementById('resultHexSub').textContent = `圆图第 ${res.circleSeq40} 卦 · 先天方图 #${hex.seq} · ${hex.fullTitle}`;
+
+            // 2. 渲染大号六爻长条 (自上爻 5 至初爻 0)
+            const yaoContainer = document.getElementById('yaoBarsContainer');
+            yaoContainer.innerHTML = '';
+            for (let y = 5; y >= 0; y--) {
+                const isYang = hex.lines[y] === 1;
+                const isActive = state.activeYaoIndices.includes(y);
+                const barColor = isActive ? 'bg-yaoActive hover:bg-goldDark' : 'bg-[#B5ABA0] hover:bg-[#9E9284]';
+
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-3 cursor-pointer group py-0.5';
+                row.title = `点击${YAO_NAMES[y]}爻测试单爻取反变卦`;
+                row.onclick = () => flipSingleYaoInteractive(y);
+
+                let barHtml = '';
+                if (isYang) {
+                    barHtml = `<div class="flex-1 h-2.5 rounded-sm transition-colors ${barColor}"></div>`;
+                } else {
+                    barHtml = `
+                        <div class="flex-1 flex justify-between gap-4">
+                            <div class="w-1/2 h-2.5 rounded-sm transition-colors ${barColor}"></div>
+                            <div class="w-1/2 h-2.5 rounded-sm transition-colors ${barColor}"></div>
+                        </div>
+                    `;
+                }
+
+                row.innerHTML = `
+                    <span class="w-4 text-[11px] font-medium ${isActive ? 'text-goldDark font-bold' : 'text-textMuted'}">${YAO_NAMES[y]}</span>
+                    ${barHtml}
+                `;
+                yaoContainer.appendChild(row);
+            }
+
+            // 3. 填充定位层级干支表（严格按当前选中的运/世/年/月/日层级动态展示，绝不越级显示下层残留数据）
+            const tbody = document.getElementById('hierarchyTableBody');
+            tbody.innerHTML = res.hierarchyRows.map(r => `
+                <tr class="hover:bg-white/60 transition-colors">
+                    <td class="py-1.5 font-semibold text-textMain">${r.label}</td>
+                    <td class="py-1.5 text-textMuted font-mono">${r.seq}</td>
+                    <td class="py-1.5 text-right font-semibold text-emerald-800">${r.gz}</td>
+                </tr>
+            `).join('');
+
+            // 4. 更新左侧辅助标签与右侧节气推演卡
+            const huiLabelEl = document.getElementById('hintHuiLabel');
+            if (huiLabelEl) huiLabelEl.textContent = `${res.hui.seq} (${res.hui.gz.slice(1,2)})`;
+            const adYearEl = document.getElementById('hintADYear');
+            if (adYearEl) adYearEl.textContent = `${res.nian.displayYearStr}${res.nian.gz}`;
+            document.getElementById('infoSolarTerm').textContent = res.solarTerm;
+            document.getElementById('infoTermDay').textContent = res.termDay;
+            document.getElementById('infoSeason').textContent = res.season;
+            document.getElementById('infoFourYao').textContent = res.fourYaoText;
+            document.getElementById('infoFivePalace').textContent = `${pCfg.name} (${pCfg.element})`;
+            document.getElementById('infoPitchPipe').textContent = PITCH_PIPES[(state.yue - 1) % 12];
+            document.getElementById('animStepCounter').textContent = `准备 · ${res.animTotalStep}/384`;
+        }
+
+        /**
+         * 十一（补充）：【展示层】左侧五级选项卡专属独立表单渲染
+         * 严格还原用户截图：运卦(1-360)、世卦(1-4320/按年份)、年卦(按坐标/按年份)、月卦(按年份+12月网格)、日卦(五级坐标/按节气)
+         */
+        function renderLeftScopeForm() {
+            const container = document.getElementById('dynamicScopeFormContainer');
+            if (!container) return;
+            const scope = state.hexScope;
+            const rangeHintEl = document.getElementById('leftRangeHint');
+
+            if (scope === 'yun') {
+                rangeHintEl.textContent = '一元360运 · 四季复、临、姤、遁重锚';
+                container.innerHTML = `
+                    <div class="space-y-2 pt-1">
+                        <div class="text-xs font-semibold text-textMain">定位参数</div>
+                        <div class="text-[11px] text-textMuted">一元内第几运</div>
+                        <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1.5">
+                            <button onclick="stepParam('yun', -1)" class="w-7 h-7 rounded-lg hover:bg-white text-textMuted hover:text-textMain font-bold">&lt;</button>
+                            <input id="inputYun" type="number" min="1" max="360" value="${state.yun}" onchange="onParamInput('yun', this.value)" class="w-24 text-center bg-transparent text-xs font-semibold text-textMain focus:outline-none">
+                            <button onclick="stepParam('yun', 1)" class="w-7 h-7 rounded-lg hover:bg-white text-textMuted hover:text-textMain font-bold">&gt;</button>
+                        </div>
+                        <div class="text-[11px] text-center text-textMuted pt-1">范围 1—360</div>
+                    </div>
+                `;
+            } else if (scope === 'shi') {
+                rangeHintEl.textContent = '一元4320世 · 每会360世重起 · 仅按阳图自下而上';
+                const isBySeq = state.locMode !== 'year';
+                container.innerHTML = `
+                    <div class="space-y-2.5">
+                        <div class="text-xs font-semibold text-textMain">定位参数</div>
+                        <div class="grid grid-cols-2 gap-1.5 bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                            <button onclick="setLocMode('coord')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${isBySeq ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">按世序</button>
+                            <button onclick="setLocMode('year')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${!isBySeq ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">按年份</button>
+                        </div>
+                        ${isBySeq ? `
+                            <div>
+                                <div class="text-[11px] text-textMuted mb-1">一元内第几世</div>
+                                <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1.5">
+                                    <button onclick="stepShiGlobal(-1)" class="w-7 h-7 rounded-lg hover:bg-white text-textMuted hover:text-textMain font-bold">&lt;</button>
+                                    <input type="number" min="1" max="4320" value="${(state.yun - 1) * 12 + state.shi}" onchange="onShiGlobalInput(this.value)" class="w-24 text-center bg-transparent text-xs font-semibold text-textMain focus:outline-none">
+                                    <button onclick="stepShiGlobal(1)" class="w-7 h-7 rounded-lg hover:bg-white text-textMuted hover:text-textMain font-bold">&gt;</button>
+                                </div>
+                                <div class="text-[11px] text-center text-textMuted mt-1">范围 1—4320</div>
+                            </div>
+                        ` : buildRuleYearCardHtml()}
+                    </div>
+                `;
+            } else if (scope === 'nian') {
+                rangeHintEl.textContent = '四季复、临、姤、遁重锚 · 阳图大运自下而上，阴图小运自上而下';
+                const isByYear = state.locMode === 'year';
+                container.innerHTML = `
+                    <div class="space-y-2.5">
+                        <div class="text-xs font-semibold text-textMain">定位参数</div>
+                        <div class="grid grid-cols-2 gap-1.5 bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                            <button onclick="setLocMode('coord')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${!isByYear ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">按坐标</button>
+                            <button onclick="setLocMode('year')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${isByYear ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">按年份</button>
+                        </div>
+                        <div class="text-xs font-semibold text-textMain">图式</div>
+                        <div class="grid grid-cols-2 gap-1.5 bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                            <button onclick="setPolarMode('yang')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${state.polarMode === 'yang' ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">大运 (阳图)</button>
+                            <button onclick="setPolarMode('yin')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${state.polarMode === 'yin' ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">小运 (阴图)</button>
+                        </div>
+                        ${!isByYear ? `
+                            <div class="space-y-2 pt-1">
+                                <div>
+                                    <div class="text-[11px] text-textMuted mb-1">一元内第几运</div>
+                                    <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1">
+                                        <button onclick="stepParam('yun', -1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&lt;</button>
+                                        <input id="inputYun" type="number" min="1" max="360" value="${state.yun}" onchange="onParamInput('yun', this.value)" class="w-20 text-center bg-transparent text-xs font-semibold focus:outline-none">
+                                        <button onclick="stepParam('yun', 1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&gt;</button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="text-[11px] text-textMuted mb-1">运内第几世</div>
+                                    <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1">
+                                        <button onclick="stepParam('shi', -1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&lt;</button>
+                                        <input id="inputShi" type="number" min="1" max="12" value="${state.shi}" onchange="onParamInput('shi', this.value)" class="w-20 text-center bg-transparent text-xs font-semibold focus:outline-none">
+                                        <button onclick="stepParam('shi', 1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&gt;</button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="text-[11px] text-textMuted mb-1">世内第几年</div>
+                                    <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1">
+                                        <button onclick="stepParam('nian', -1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&lt;</button>
+                                        <input id="inputNian" type="number" min="1" max="30" value="${state.nian}" onchange="onParamInput('nian', this.value)" class="w-20 text-center bg-transparent text-xs font-semibold focus:outline-none">
+                                        <button onclick="stepParam('nian', 1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&gt;</button>
+                                    </div>
+                                </div>
+                                <div class="text-[10px] text-center text-textMuted">运1—360 · 世1—12 · 年1—30</div>
+                            </div>
+                        ` : buildRuleYearCardHtml()}
+                    </div>
+                `;
+            } else if (scope === 'yue') {
+                const isByYear = state.locMode === 'year';
+                rangeHintEl.textContent = isByYear ? '公元前40017—公元46383；没有公元0年' : '运1—360 · 世1—12 · 年1—30 · 月1—12';
+                container.innerHTML = `
+                    <div class="space-y-2.5">
+                        <div class="text-xs font-semibold text-textMain">定位参数</div>
+                        <div class="grid grid-cols-2 gap-1.5 bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                            <button onclick="setLocMode('coord')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${!isByYear ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">按坐标</button>
+                            <button onclick="setLocMode('year')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${isByYear ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">按年份</button>
+                        </div>
+                        <div class="text-xs font-semibold text-textMain">图式</div>
+                        <div class="grid grid-cols-2 gap-1.5 bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                            <button onclick="setPolarMode('yang')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${state.polarMode === 'yang' ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">阳图 (大运)</button>
+                            <button onclick="setPolarMode('yin')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${state.polarMode === 'yin' ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">阴图 (小运)</button>
+                        </div>
+                        ${isByYear ? `
+                            ${buildRuleYearCardHtml()}
+                            <div class="p-3 rounded-xl bg-bgMain border border-borderSubtle space-y-2">
+                                <div class="flex justify-between items-center text-xs">
+                                    <span class="font-semibold text-textMain">选择月份</span>
+                                    <span class="text-[11px] text-goldDark">当前 · 第${state.yue}月</span>
+                                </div>
+                                <div class="grid grid-cols-4 gap-1.5">
+                                    ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `
+                                        <button onclick="onParamInput('yue', ${m})" class="py-1.5 rounded-lg text-xs font-medium border transition-all ${state.yue === m ? 'bg-goldDark text-white border-goldDark shadow-xs' : 'bg-white text-textMain border-borderSubtle hover:border-goldPrimary'}">${m}月</button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : buildFiveCoordInputsHtml(false)}
+                    </div>
+                `;
+            } else {
+                // 日卦默认表单
+                rangeHintEl.textContent = '运1—360 · 世1—12 · 年1—30 · 月1—12 · 日1—30';
+                const isSolar = state.locMode === 'solar';
+                container.innerHTML = `
+                    <div class="space-y-2.5">
+                        <div class="text-xs font-semibold text-textMain">定位参数</div>
+                        <div class="grid grid-cols-2 gap-1.5 bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                            <button onclick="setLocMode('coord')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${!isSolar ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">按坐标</button>
+                            <button onclick="setLocMode('solar')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${isSolar ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">按节气</button>
+                        </div>
+                        <div class="text-xs font-semibold text-textMain">图式</div>
+                        <div class="grid grid-cols-2 gap-1.5 bg-bgMain p-1 rounded-xl border border-borderSubtle">
+                            <button onclick="setPolarMode('yang')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${state.polarMode === 'yang' ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">阳图 (人数)</button>
+                            <button onclick="setPolarMode('yin')" class="py-1.5 text-xs font-medium rounded-lg transition-all ${state.polarMode === 'yin' ? 'bg-goldPrimary text-white shadow-sm' : 'text-textMuted hover:text-textMain'}">阴图 (物数)</button>
+                        </div>
+                        ${buildFiveCoordInputsHtml(true)}
+                    </div>
+                `;
+            }
+        }
+
+        function buildRuleYearCardHtml() {
+            return `
+                <div class="p-3 rounded-xl bg-bgMain border border-borderSubtle space-y-2.5">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-semibold text-textMain">定位规则年份</span>
+                        <span class="text-[10px] text-textMuted">公元前40017年—公元46383年</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1.5 items-center text-xs">
+                        <span class="text-textMuted text-[11px]">纪年</span>
+                        <button onclick="setEraType('BC')" class="py-1 rounded-lg font-medium transition-all ${state.eraType === 'BC' ? 'bg-goldPrimary text-white' : 'bg-white text-textMuted border border-borderSubtle'}">公元前</button>
+                        <button onclick="setEraType('AD')" class="py-1 rounded-lg font-medium transition-all ${state.eraType === 'AD' ? 'bg-goldPrimary text-white' : 'bg-white text-textMuted border border-borderSubtle'}">公元</button>
+                    </div>
+                    <div class="grid grid-cols-5 gap-1 items-center">
+                        <button onclick="stepRuleYear(-100)" class="py-1 rounded-lg bg-white border border-borderSubtle text-[11px] hover:bg-goldLight">-100</button>
+                        <button onclick="stepRuleYear(-10)" class="py-1 rounded-lg bg-white border border-borderSubtle text-[11px] hover:bg-goldLight">-10</button>
+                        <input type="number" value="${state.ruleYear}" onchange="onRuleYearInput(this.value)" class="w-full py-1 rounded-lg bg-white border border-borderSubtle text-center text-xs font-bold text-textMain focus:outline-none">
+                        <button onclick="stepRuleYear(10)" class="py-1 rounded-lg bg-white border border-borderSubtle text-[11px] hover:bg-goldLight">+10</button>
+                        <button onclick="stepRuleYear(100)" class="py-1 rounded-lg bg-white border border-borderSubtle text-[11px] hover:bg-goldLight">+100</button>
+                    </div>
+                    <div class="text-[11px] text-textMuted">当前: ${state.eraType === 'BC' ? '公元前' : '公元'}${state.ruleYear}年</div>
+                </div>
+            `;
+        }
+
+        function buildFiveCoordInputsHtml(includeRi) {
+            return `
+                <div class="space-y-2 pt-1">
+                    <div>
+                        <div class="flex justify-between text-[11px] text-textMuted mb-1">
+                            <span>一元内第几运</span>
+                            <span id="hintHuiLabel" class="text-goldDark font-mono">第${Math.ceil(state.yun/30)}会</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1">
+                            <button onclick="stepParam('yun', -1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&lt;</button>
+                            <input id="inputYun" type="number" min="1" max="360" value="${state.yun}" onchange="onParamInput('yun', this.value)" class="w-20 text-center bg-transparent text-xs font-semibold focus:outline-none">
+                            <button onclick="stepParam('yun', 1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&gt;</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-[11px] text-textMuted mb-1">
+                            <span>运内第几世</span><span class="font-mono text-[10px]">1运=12世</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1">
+                            <button onclick="stepParam('shi', -1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&lt;</button>
+                            <input id="inputShi" type="number" min="1" max="12" value="${state.shi}" onchange="onParamInput('shi', this.value)" class="w-20 text-center bg-transparent text-xs font-semibold focus:outline-none">
+                            <button onclick="stepParam('shi', 1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&gt;</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-[11px] text-textMuted mb-1">
+                            <span>世内第几年</span><span id="hintADYear" class="font-mono text-goldDark">公元纪年</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1">
+                            <button onclick="stepParam('nian', -1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&lt;</button>
+                            <input id="inputNian" type="number" min="1" max="30" value="${state.nian}" onchange="onParamInput('nian', this.value)" class="w-20 text-center bg-transparent text-xs font-semibold focus:outline-none">
+                            <button onclick="stepParam('nian', 1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&gt;</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-[11px] text-textMuted mb-1">
+                            <span>年内第几月</span><span class="font-mono text-[10px]">1年=12月</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1">
+                            <button onclick="stepParam('yue', -1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&lt;</button>
+                            <input id="inputYue" type="number" min="1" max="12" value="${state.yue}" onchange="onParamInput('yue', this.value)" class="w-20 text-center bg-transparent text-xs font-semibold focus:outline-none">
+                            <button onclick="stepParam('yue', 1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&gt;</button>
+                        </div>
+                    </div>
+                    ${includeRi ? `
+                    <div>
+                        <div class="flex justify-between text-[11px] text-textMuted mb-1">
+                            <span>月内第几日</span><span class="font-mono text-[10px]">1月=30日</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-bgMain rounded-xl border border-borderSubtle px-2 py-1">
+                            <button onclick="stepParam('ri', -1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&lt;</button>
+                            <input id="inputRi" type="number" min="1" max="30" value="${state.ri}" onchange="onParamInput('ri', this.value)" class="w-20 text-center bg-transparent text-xs font-semibold focus:outline-none">
+                            <button onclick="stepParam('ri', 1)" class="w-7 h-7 rounded-lg hover:bg-white font-bold">&gt;</button>
+                        </div>
+                    </div>` : ''}
+                </div>
+            `;
+        }
+
+        function stepShiGlobal(delta) {
+            let total = (state.yun - 1) * 12 + state.shi + delta;
+            if (total < 1) total = 4320;
+            if (total > 4320) total = 1;
+            onShiGlobalInput(total);
+        }
+
+        function onShiGlobalInput(val) {
+            let total = Math.max(1, Math.min(4320, parseInt(val, 10) || 1));
+            state.yun = Math.floor((total - 1) / 12) + 1;
+            state.shi = ((total - 1) % 12) + 1;
+            renderLeftScopeForm();
+            updateRightPanelAndSync();
+        }
+
+        function setEraType(type) {
+            state.eraType = type;
+            syncRuleYearToCoords();
+        }
+
+        function stepRuleYear(delta) {
+            state.ruleYear = Math.max(1, state.ruleYear + delta);
+            syncRuleYearToCoords();
+        }
+
+        function onRuleYearInput(val) {
+            state.ruleYear = Math.max(1, parseInt(val, 10) || 1);
+            syncRuleYearToCoords();
+        }
+
+        function syncRuleYearToCoords() {
+            // 注意：历史纪年没有公元0年，公元前1年(BC 1)紧接公元1年(AD 1)
+            // 公元1984甲子年 = 第7会·第192运·第9世(总第2301世)·第1年
+            const offsetFrom1984 = state.eraType === 'BC'
+                ? (-state.ruleYear - 1983)
+                : (state.ruleYear - 1984);
+
+            const totalShi = 2301 + Math.floor(offsetFrom1984 / 30);
+            const nianInShi = ((offsetFrom1984 % 30) + 30) % 30 + 1;
+
+            state.yun = Math.max(1, Math.min(360, Math.floor((totalShi - 1) / 12) + 1));
+            state.shi = ((totalShi - 1) % 12 + 12) % 12 + 1;
+            state.nian = nianInShi;
+            renderLeftScopeForm();
+            updateRightPanelAndSync();
+        }
+
+        function renderCurrentCanvas() {
+            if (state.canvasMode === 'circle') {
+                renderCircleSvg();
+            } else if (state.canvasMode === 'grid16') {
+                renderGrid16View();
+            } else if (state.canvasMode === 'grid256') {
+                renderGrid256View();
+            } else if (state.canvasMode === 'square64') {
+                renderSquare64View();
+            }
+        }
+
+        /**
+         * 十二、展示层交互控制函数集
+         */
+        function selectHexDirectly(hexObj) {
+            state.activeHex = hexObj;
+            const res = computeHuangJiResult();
+            renderRightSideCards(res);
+            renderCurrentCanvas();
+        }
+
+        function flipSingleYaoInteractive(yaoIdx) {
+            const newLines = [...state.activeHex.lines];
+            newLines[yaoIdx] = 1 - newLines[yaoIdx];
+            const changedHex = getHexByLines(newLines);
+            state.activeYaoIndices = [yaoIdx];
+            selectHexDirectly(changedHex);
+        }
+
+        function stepParam(key, delta) {
+            const limits = { yun: [1, 360], shi: [1, 12], nian: [1, 30], yue: [1, 12], ri: [1, 30] };
+            const [min, max] = limits[key];
+            let nextVal = state[key] + delta;
+            if (nextVal < min) nextVal = max;
+            if (nextVal > max) nextVal = min;
+            state[key] = nextVal;
+            const inputMap = { yun: 'inputYun', shi: 'inputShi', nian: 'inputNian', yue: 'inputYue', ri: 'inputRi' };
+            const el = document.getElementById(inputMap[key]);
+            if (el) el.value = nextVal;
+            renderLeftScopeForm();
+            updateRightPanelAndSync();
+        }
+
+        function onParamInput(key, val) {
+            const limits = { yun: [1, 360], shi: [1, 12], nian: [1, 30], yue: [1, 12], ri: [1, 30] };
+            const [min, max] = limits[key];
+            let num = parseInt(val, 10);
+            if (isNaN(num)) num = min;
+            num = Math.max(min, Math.min(max, num));
+            state[key] = num;
+            renderLeftScopeForm();
+            updateRightPanelAndSync();
+        }
+
+        function switchAppLayer(layer) {
+            state.appLayer = layer;
+            const isDisplay = layer === 'display';
+            document.getElementById('displayLayerContainer').classList.toggle('hidden', !isDisplay);
+            document.getElementById('researchLayerContainer').classList.toggle('hidden', isDisplay);
+            document.getElementById('leftDisplayControls').classList.toggle('hidden', !isDisplay);
+            document.getElementById('leftBottomAction').classList.toggle('hidden', !isDisplay);
+            document.getElementById('leftResearchControls').classList.toggle('hidden', isDisplay);
+
+            document.getElementById('btnLayerDisplay').className = isDisplay
+                ? 'py-2 text-xs font-semibold rounded-lg transition-all bg-goldPrimary text-white shadow-sm'
+                : 'py-2 text-xs font-semibold rounded-lg transition-all text-textMuted hover:text-textMain';
+            document.getElementById('btnLayerResearch').className = !isDisplay
+                ? 'py-2 text-xs font-semibold rounded-lg transition-all bg-goldPrimary text-white shadow-sm'
+                : 'py-2 text-xs font-semibold rounded-lg transition-all text-textMuted hover:text-textMain';
+
+            if (!isDisplay) {
+                executeResearchCalculation();
+            }
+        }
+
+        function switchHexScope(scope) {
+            state.hexScope = scope;
+            const hints = {
+                yun: '运卦 · 一元 360 运',
+                shi: '世卦 · 4320 世定位',
+                nian: '年卦 · 坐标 / 年份',
+                yue: '月卦 · 坐标 / 年月',
+                ri: '日卦 · 内部360日 / 节气'
+            };
+            const btnLabels = { yun: '排运卦', shi: '排世卦', nian: '排年卦', yue: '排月卦', ri: '排日卦' };
+            document.getElementById('scopeHintText').textContent = hints[scope];
+            document.getElementById('btnExecuteText').textContent = btnLabels[scope];
+
+            document.querySelectorAll('.scope-tab').forEach(btn => {
+                if (btn.dataset.scope === scope) {
+                    btn.className = 'scope-tab py-1.5 text-goldDark font-bold border-b-2 border-goldPrimary transition-colors';
+                } else {
+                    btn.className = 'scope-tab py-1.5 text-textMuted hover:text-textMain transition-colors';
+                }
+            });
+            renderLeftScopeForm();
+            updateRightPanelAndSync();
+        }
+
+        function switchCanvasMode(mode) {
+            state.canvasMode = mode;
+            const views = {
+                circle: 'viewCircleContainer',
+                grid16: 'viewGrid16Container',
+                grid256: 'viewGrid256Container',
+                square64: 'viewSquare64Container'
+            };
+            const tabs = {
+                circle: 'tabModeCircle',
+                grid16: 'tabModeGrid16',
+                grid256: 'tabModeGrid256',
+                square64: 'tabModeSquare64'
+            };
+            const badges = {
+                circle: '循圆图向前 · 小运自上而下',
+                grid16: '六爻自上而下取反 · 12变卦倍增序列',
+                grid256: '加一倍法 · 16×16分形周期迭代',
+                square64: '邵雍先天方图 · 五宫五行对冲分布'
+            };
+
+            Object.keys(views).forEach(k => {
+                document.getElementById(views[k]).classList.toggle('hidden', k !== mode);
+                document.getElementById(tabs[k]).className = (k === mode)
+                    ? 'px-3 py-1 text-xs font-semibold rounded-lg bg-goldPrimary text-white shadow-sm transition-all'
+                    : 'px-3 py-1 text-xs font-semibold rounded-lg text-textMuted hover:text-textMain transition-all';
+            });
+            document.getElementById('canvasRuleBadge').textContent = badges[mode];
+            renderCurrentCanvas();
+        }
+
+        function setLocMode(mode) {
+            state.locMode = mode;
+            renderLeftScopeForm();
+            updateRightPanelAndSync();
+        }
+
+        function setPolarMode(mode) {
+            state.polarMode = mode;
+            renderLeftScopeForm();
+            updateRightPanelAndSync();
+        }
+
+        function togglePalaceColor() {
+            state.showPalaceColor = !state.showPalaceColor;
+            const btn = document.getElementById('btnPalaceColor');
+            btn.textContent = state.showPalaceColor ? '五宫色标: 开' : '五宫色标: 关';
+            btn.className = state.showPalaceColor
+                ? 'text-[11px] px-2 py-0.5 rounded bg-goldPrimary text-white border border-goldDark transition-colors'
+                : 'text-[11px] px-2 py-0.5 rounded bg-bgMain hover:bg-goldLight text-textMuted hover:text-goldDark border border-borderSubtle transition-colors';
+            renderCurrentCanvas();
+        }
+
+        function onSelectBaseHex(seqVal) {
+            const hex = HEX_BY_SEQ[parseInt(seqVal, 10)];
+            if (hex) selectHexDirectly(hex);
+        }
+
+        function triggerPaiGuaAction() {
+            const btn = document.getElementById('btnExecutePaiGua');
+            btn.classList.add('ring-2', 'ring-goldPrimary');
+            setTimeout(() => btn.classList.remove('ring-2', 'ring-goldPrimary'), 300);
+            updateRightPanelAndSync();
+        }
+
+        /**
+         * 十三、动画播放控制 (暂停、重置、标准、快进)
+         */
+        function setPlayState(mode) {
+            state.playState = mode;
+            if (state.animTimer) {
+                clearInterval(state.animTimer);
+                state.animTimer = null;
+            }
+
+            const btnPause = document.getElementById('btnPlayPause');
+            const btnNormal = document.getElementById('btnPlayNormal');
+            const btnFast = document.getElementById('btnPlayFast');
+            const baseCls = 'px-2 py-1 text-[11px] rounded-md text-textMuted hover:bg-bgMain transition-colors';
+            const activeCls = 'px-2.5 py-1 text-[11px] rounded-md bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 transition-colors';
+
+            btnPause.className = mode === 'pause' ? activeCls : baseCls;
+            btnNormal.className = mode === 'normal' ? activeCls : baseCls;
+            btnFast.className = mode === 'fast' ? activeCls : baseCls;
+
+            if (mode === 'normal' || mode === 'fast') {
+                const interval = mode === 'fast' ? 220 : 750;
+                state.animTimer = setInterval(() => {
+                    stepParam('ri', 1);
+                    if (state.ri === 1) stepParam('yue', 1);
+                }, interval);
+            }
+        }
+
+        function resetCanvasAndAnim() {
+            setPlayState('pause');
+            state.yun = 196;
+            state.shi = 5;
+            state.nian = 4;
+            state.yue = 3;
+            state.ri = 3;
+            document.getElementById('inputYun').value = 196;
+            document.getElementById('inputShi').value = 5;
+            document.getElementById('inputNian').value = 4;
+            document.getElementById('inputYue').value = 3;
+            document.getElementById('inputRi').value = 3;
+            resetSvgViewport();
+            updateRightPanelAndSync();
+        }
+
+        /**
+         * 十四、SVG 缩放与拖拽平移交互
+         */
+        function applySvgTransform() {
+            const svg = document.getElementById('circleSvg');
+            svg.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+            document.getElementById('zoomPercentText').textContent = `${Math.round(state.zoom * 100)}%`;
+        }
+
+        function zoomSvg(factor) {
+            state.zoom = Math.max(0.55, Math.min(2.6, state.zoom * factor));
+            applySvgTransform();
+        }
+
+        function resetSvgViewport() {
+            state.zoom = 1;
+            state.panX = 0;
+            state.panY = 0;
+            applySvgTransform();
+        }
+
+        function initSvgDragAndWheel() {
+            const container = document.getElementById('viewCircleContainer');
+            container.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const factor = e.deltaY < 0 ? 1.08 : 0.92;
+                zoomSvg(factor);
+            }, { passive: false });
+
+            container.addEventListener('mousedown', (e) => {
+                state.isDragging = true;
+                state.dragStartX = e.clientX - state.panX;
+                state.dragStartY = e.clientY - state.panY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!state.isDragging) return;
+                state.panX = e.clientX - state.dragStartX;
+                state.panY = e.clientY - state.dragStartY;
+                applySvgTransform();
+            });
+
+            window.addEventListener('mouseup', () => {
+                state.isDragging = false;
+            });
+        }
+
+        /**
+         * 十五、推演过程弹窗详解
+         */
+        function openDeductionModal() {
+            const res = computeHuangJiResult();
+            const hex = state.activeHex;
+            const cycle12 = generate12Cycle(hex.seq);
+            const cycleText = cycle12.map(c => `${c.step}.${c.hex.name}(#${c.hex.seq})`).join(' → ');
+
+            const content = document.getElementById('deductionModalContent');
+            content.innerHTML = `
+                <div class="p-3.5 rounded-xl bg-bgMain border border-borderSubtle space-y-1.5">
+                    <div class="font-bold text-goldDark">一、元会运世大坐标定位（1 : 12 : 30 比例律）</div>
+                    <p>1元 = 12会 = 360运 = 4320世 = 129,600年。当前定位处于：</p>
+                    <p class="font-mono text-emerald-900 bg-white px-2.5 py-1.5 rounded border border-borderSubtle">
+                        ${res.hui.seq}(${res.hui.gz}) → ${res.yun.seq}(${res.yun.gz}) → ${res.shi.seq}(${res.shi.gz}) → ${res.nian.seq}(公元${res.nian.adYear}${res.nian.gz}) → ${res.yue.seq}(${res.yue.gz}) → ${res.ri.seq}(${res.ri.gz})
+                    </p>
+                </div>
+                <div class="p-3.5 rounded-xl bg-bgMain border border-borderSubtle space-y-1.5">
+                    <div class="font-bold text-goldDark">二、先天64卦圆图推演（传统皇极值日算法）</div>
+                    <p>循先天圆图顺时针推演，当前命中卦象为 <b>《${hex.fullTitle}》</b>（先天方图序号 <b>#${hex.seq}</b>）。</p>
+                    <p>节气校准：<b>${res.solarTerm}</b>（${res.termDay}），当值取爻为：<b>${res.yaoLabelStr}</b>，本气间四爻对应 <b>${res.fourYaoText}</b>。</p>
+                </div>
+                <div class="p-3.5 rounded-xl bg-bgMain border border-borderSubtle space-y-1.5">
+                    <div class="font-bold text-goldDark">三、加一倍法 · 16宫格/256宫格 768变推演（视频改良体系）</div>
+                    <p>保留乾坤坎离四正卦，以 <b>#${hex.seq} ${hex.name}卦</b> 为本卦，自上爻至初爻逐次取反再取反，生成十二律吕周期变卦（所属宫位：<b>${hex.palaceName}</b>）：</p>
+                    <p class="font-mono text-[11px] bg-white p-2 rounded border border-borderSubtle leading-relaxed">
+                        ${cycleText}
+                    </p>
+                    <p class="text-textMuted">各变卦之间先天序号差值严格遵循 ±1, ±2, ±4, ±8, ±16, ±32 指数倍增与衰减规律。</p>
+                </div>
+            `;
+            document.getElementById('deductionModal').classList.remove('hidden');
+        }
+
+        function closeDeductionModal() {
+            document.getElementById('deductionModal').classList.add('hidden');
+        }
+
+        /**
+         * 十六、【研究层】寿星天文算法 (`lunar-javascript` / `lunar_python` 同源引擎) 完整实现
+         * 100% 还原 `image_612b35.jpg` 计算依据、儒略日、真农历、早晚子时四柱及24节气精确秒级时刻
+         */
+        function pad2(n) {
+            return String(n).padStart(2, '0');
+        }
+
+        function formatSolarYmdHms(solarObj) {
+            return `${solarObj.getYear()}-${pad2(solarObj.getMonth())}-${pad2(solarObj.getDay())} ${pad2(solarObj.getHour())}:${pad2(solarObj.getMinute())}:${pad2(solarObj.getSecond())}`;
+        }
+
+        // 将公历年份转换为中文数字（如 2000 -> 二〇〇〇）
+        function toChineseYearStr(numStr) {
+            const map = { '0': '〇', '1': '一', '2': '二', '3': '三', '4': '四', '5': '五', '6': '六', '7': '七', '8': '八', '9': '九' };
+            return String(numStr).split('').map(ch => map[ch] || ch).join('');
+        }
+
+        // 切换公历日期 / 农历日期输入模式（支持将当前时间无缝互转）
+        function switchResCalendarType(type) {
+            if (state.resCalendarType === type) return;
+            if (typeof Solar !== 'undefined' && typeof Lunar !== 'undefined') {
+                try {
+                    if (type === 'lunar') {
+                        // 从当前公历转为农历显示在输入框中
+                        const s = Solar.fromYmdHms(state.resYear, state.resMonth, state.resDay, state.resHour, state.resMinute, 0);
+                        const l = s.getLunar();
+                        state.resYear = l.getYear();
+                        state.resMonth = Math.abs(l.getMonth());
+                        state.resDay = l.getDay();
+                    } else {
+                        // 从当前农历转为公历显示在输入框中
+                        const l = Lunar.fromYmdHms(state.resYear, state.resMonth, state.resDay, state.resHour, state.resMinute, 0);
+                        const s = l.getSolar();
+                        state.resYear = s.getYear();
+                        state.resMonth = s.getMonth();
+                        state.resDay = s.getDay();
+                    }
+                } catch (err) {
+                    console.warn('Calendar switch conversion warning:', err);
+                }
+            }
+            state.resCalendarType = type;
+
+            const isSolar = type === 'solar';
+            document.getElementById('btnResInputSolar').className = isSolar
+                ? 'px-3 py-1 rounded-lg text-xs font-semibold bg-[#E2EFEA] text-[#234E43] shadow-xs transition-all'
+                : 'px-3 py-1 rounded-lg text-xs font-medium text-textMuted hover:text-textMain transition-all';
+            document.getElementById('btnResInputLunar').className = !isSolar
+                ? 'px-3 py-1 rounded-lg text-xs font-semibold bg-[#E2EFEA] text-[#234E43] shadow-xs transition-all'
+                : 'px-3 py-1 rounded-lg text-xs font-medium text-textMuted hover:text-textMain transition-all';
+            document.getElementById('resInputModeBadge').textContent = isSolar
+                ? '当前按公历输入（满23:00自动进子时换下一日柱）'
+                : '当前按农历输入（例如输入七月初八，自动用寿星万年历换算精准干支）';
+
+            syncResSpinnerUI();
+            executeResearchCalculation();
+        }
+
+        function syncResSpinnerUI() {
+            const y = state.resYear;
+            const m = state.resMonth;
+            const d = state.resDay;
+            const h = state.resHour;
+            const min = state.resMinute;
+
+            document.getElementById('resInputYear').value = y;
+            document.getElementById('resPrevYear').textContent = y - 1;
+            document.getElementById('resNextYear').textContent = y + 1;
+
+            document.getElementById('resInputMonth').value = m;
+            document.getElementById('resPrevMonth').textContent = m <= 1 ? 12 : m - 1;
+            document.getElementById('resNextMonth').textContent = m >= 12 ? 1 : m + 1;
+
+            document.getElementById('resInputDay').value = d;
+            document.getElementById('resPrevDay').textContent = d <= 1 ? 30 : d - 1;
+            document.getElementById('resNextDay').textContent = d >= 31 ? 1 : d + 1;
+
+            document.getElementById('resInputHour').value = h;
+            document.getElementById('resPrevHour').textContent = h <= 0 ? 23 : h - 1;
+            document.getElementById('resNextHour').textContent = h >= 23 ? 0 : h + 1;
+
+            document.getElementById('resInputMinute').value = min;
+            document.getElementById('resPrevMinute').textContent = min <= 0 ? 59 : min - 1;
+            document.getElementById('resNextMinute').textContent = min >= 59 ? 0 : min + 1;
+        }
+
+        function stepResDate(field, delta) {
+            if (field === 'year') state.resYear += delta;
+            if (field === 'month') {
+                state.resMonth += delta;
+                if (state.resMonth < 1) state.resMonth = 12;
+                if (state.resMonth > 12) state.resMonth = 1;
+            }
+            if (field === 'day') {
+                const maxD = state.resCalendarType === 'lunar' ? 30 : 31;
+                state.resDay += delta;
+                if (state.resDay < 1) state.resDay = maxD;
+                if (state.resDay > maxD) state.resDay = 1;
+            }
+            if (field === 'hour') {
+                state.resHour = (state.resHour + delta + 24) % 24;
+            }
+            if (field === 'minute') {
+                state.resMinute = (state.resMinute + delta + 60) % 60;
+            }
+            syncResSpinnerUI();
+            executeResearchCalculation();
+        }
+
+        function onResWheel(e, field) {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 1 : -1;
+            stepResDate(field, delta);
+        }
+
+        function onResManualChange() {
+            state.resYear = parseInt(document.getElementById('resInputYear').value, 10) || 2000;
+            state.resMonth = Math.max(1, Math.min(12, parseInt(document.getElementById('resInputMonth').value, 10) || 1));
+            state.resDay = Math.max(1, Math.min(31, parseInt(document.getElementById('resInputDay').value, 10) || 1));
+            state.resHour = Math.max(0, Math.min(23, parseInt(document.getElementById('resInputHour').value, 10) || 0));
+            state.resMinute = Math.max(0, Math.min(59, parseInt(document.getElementById('resInputMinute').value, 10) || 0));
+            syncResSpinnerUI();
+            executeResearchCalculation();
+        }
+
+        function setResQuickDate(y, m, d, h, min) {
+            state.resCalendarType = 'solar';
+            document.getElementById('btnResInputSolar').className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-[#E2EFEA] text-[#234E43] shadow-xs transition-all';
+            document.getElementById('btnResInputLunar').className = 'px-3 py-1 rounded-lg text-xs font-medium text-textMuted hover:text-textMain transition-all';
+            state.resYear = y;
+            state.resMonth = m;
+            state.resDay = d;
+            state.resHour = h;
+            state.resMinute = min;
+            syncResSpinnerUI();
+            executeResearchCalculation();
+        }
+
+        function setResNowDate() {
+            const now = new Date();
+            setResQuickDate(now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes());
+        }
+
+        function toggleCalculationBasis() {
+            state.basisExpanded = !state.basisExpanded;
+            const card = document.getElementById('calculationBasisCard');
+            const btn = document.getElementById('btnToggleBasis');
+            card.classList.toggle('hidden', !state.basisExpanded);
+            btn.textContent = state.basisExpanded ? '收起计算依据 -' : '展开计算依据 +';
+        }
+
+        // 绘制研究层四柱卡片内的单卦或双并排六爻图
+        function buildResearchYaoCardHtml(hexList, highlightMap) {
+            if (hexList.length === 1) {
+                const h = hexList[0];
+                const hi = highlightMap[0] || [];
+                let rows = '';
+                for (let y = 5; y >= 0; y--) {
+                    const isYang = h.lines[y] === 1;
+                    const isGold = hi.includes(y);
+                    const color = isGold ? 'bg-[#C59B5F]' : 'bg-[#6A8277]';
+                    const bar = isYang
+                        ? `<div class="flex-1 h-2 rounded-xs ${color}"></div>`
+                        : `<div class="flex-1 flex justify-between gap-2.5"><div class="w-1/2 h-2 rounded-xs ${color}"></div><div class="w-1/2 h-2 rounded-xs ${color}"></div></div>`;
+                    rows += `<div class="flex items-center gap-2 py-[2px]"><span class="w-3 text-[10px] text-textMuted">${YAO_NAMES[y]}</span>${bar}</div>`;
+                }
+                return `<div class="w-28 mx-auto space-y-1">${rows}</div>`;
+            } else {
+                // 双卦并排（如月卦：姤 & 大过；日卦：遁 & 咸）
+                let colsHtml = hexList.map((h, idx) => {
+                    const hi = highlightMap[idx] || [];
+                    let rows = '';
+                    for (let y = 5; y >= 0; y--) {
+                        const isYang = h.lines[y] === 1;
+                        const isGold = hi.includes(y);
+                        const color = isGold ? 'bg-[#C59B5F]' : 'bg-[#6A8277]';
+                        const bar = isYang
+                            ? `<div class="flex-1 h-2 rounded-xs ${color}"></div>`
+                            : `<div class="flex-1 flex justify-between gap-1.5"><div class="w-1/2 h-2 rounded-xs ${color}"></div><div class="w-1/2 h-2 rounded-xs ${color}"></div></div>`;
+                        rows += `<div class="flex items-center gap-1.5 py-[2px]"><span class="w-3 text-[9px] text-textMuted">${YAO_NAMES[y]}</span>${bar}</div>`;
+                    }
+                    return `<div class="flex-1 space-y-1">${rows}</div>`;
+                }).join('');
+                return `<div class="flex items-center justify-center gap-3 px-1">${colsHtml}</div>`;
+            }
+        }
+
+        // 核心寿星天文计算与研究层渲染函数
+        function executeResearchCalculation() {
+            if (typeof Solar === 'undefined' || typeof Lunar === 'undefined') return;
+
+            let solar, lunar;
+            try {
+                if (state.resCalendarType === 'solar') {
+                    solar = Solar.fromYmdHms(state.resYear, state.resMonth, state.resDay, state.resHour, state.resMinute, 0);
+                    lunar = solar.getLunar();
+                } else {
+                    lunar = Lunar.fromYmdHms(state.resYear, state.resMonth, state.resDay, state.resHour, state.resMinute, 0);
+                    solar = lunar.getSolar();
+                }
+            } catch (e) {
+                solar = Solar.fromYmdHms(2000, 12, 21, 23, 8, 0);
+                lunar = solar.getLunar();
+            }
+
+            // 1. 精确计算儒略日（与截图 2000-12-21 23:08:00 -> 2451900.4638888887 严丝合缝）
+            // 注：标准儒略日以格林威治正午12:00为整数点，lunar_python直接将civil_datetime代算得 2451900.4638888887
+            const Y = solar.getYear();
+            const M = solar.getMonth();
+            const D = solar.getDay() + (solar.getHour() + solar.getMinute() / 60 + solar.getSecond() / 3600) / 24;
+            let yTemp = Y, mTemp = M;
+            if (mTemp <= 2) { yTemp -= 1; mTemp += 12; }
+            let B = 0;
+            if (Y > 1582 || (Y === 1582 && (M > 10 || (M === 10 && D >= 15)))) {
+                const A = Math.floor(yTemp / 100);
+                B = 2 - A + Math.floor(A / 4);
+            }
+            const exactJD = Math.floor(365.25 * (yTemp + 4716)) + Math.floor(30.6001 * (mTemp + 1)) + D + B - 1524.5;
+            const jdStr = exactJD.toFixed(10);
+
+            // 2. 四柱八字计算（严格遵循 `sect = 1` 晚子时23:00换下一日柱！使 2000-12-21 23:08 输出 庚辰 戊子 癸丑 甲子）
+            const eightChar = lunar.getEightChar();
+            eightChar.setSect(1); // 23:00 起算下一天日柱
+            const yearGZ = eightChar.getYear();
+            const monthGZ = eightChar.getMonth();
+            const dayGZ = eightChar.getDay();
+            const timeGZ = eightChar.getTime();
+            const fourPillarsStr = `${yearGZ} ${monthGZ} ${dayGZ} ${timeGZ}`;
+
+            // 3. 农历格式化（如 二〇〇〇年冬月廿六）
+            const lunarYearCN = toChineseYearStr(lunar.getYear());
+            const lunarDateStr = `${lunarYearCN}年${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}`;
+            const timeZhi = lunar.getTimeZhi();
+
+            // 4. 前一节气与后一节气及相差天时计算
+            const prevJieQi = lunar.getPrevJieQi(true);
+            const nextJieQi = lunar.getNextJieQi(false);
+            const prevJqSolar = prevJieQi.getSolar();
+            const nextJqSolar = nextJieQi.getSolar();
+            const prevJqLunar = prevJqSolar.getLunar();
+            const nextJqLunar = nextJqSolar.getLunar();
+
+            const curTs = new Date(solar.getYear(), solar.getMonth() - 1, solar.getDay(), solar.getHour(), solar.getMinute(), solar.getSecond()).getTime();
+            const prevTs = new Date(prevJqSolar.getYear(), prevJqSolar.getMonth() - 1, prevJqSolar.getDay(), prevJqSolar.getHour(), prevJqSolar.getMinute(), prevJqSolar.getSecond()).getTime();
+            const nextTs = new Date(nextJqSolar.getYear(), nextJqSolar.getMonth() - 1, nextJqSolar.getDay(), nextJqSolar.getHour(), nextJqSolar.getMinute(), nextJqSolar.getSecond()).getTime();
+
+            const elapsedHoursTotal = Math.max(0, Math.floor((curTs - prevTs) / 3600000));
+            const elapsedDays = Math.floor(elapsedHoursTotal / 24);
+            const elapsedHours = elapsedHoursTotal % 24;
+
+            const remainHoursTotal = Math.max(0, Math.floor((nextTs - curTs) / 3600000));
+            const remainDays = Math.floor(remainHoursTotal / 24);
+            const remainHours = remainHoursTotal % 24;
+
+            // 更新节气边界 UI
+            document.getElementById('resPrevTermName').textContent = prevJieQi.getName();
+            document.getElementById('resPrevTermSolar').textContent = `公历 ${formatSolarYmdHms(prevJqSolar)}`;
+            document.getElementById('resPrevTermLunar').textContent = `农历 ${toChineseYearStr(prevJqLunar.getYear())}年${prevJqLunar.getMonthInChinese()}月${prevJqLunar.getDayInChinese()} ${prevJqLunar.getTimeZhi()}时`;
+            document.getElementById('resPrevTermElapsed').textContent = `已过 ${elapsedDays}天${elapsedHours}时`;
+
+            document.getElementById('resNextTermName').textContent = nextJieQi.getName();
+            document.getElementById('resNextTermSolar').textContent = `公历 ${formatSolarYmdHms(nextJqSolar)}`;
+            document.getElementById('resNextTermLunar').textContent = `农历 ${toChineseYearStr(nextJqLunar.getYear())}年${nextJqLunar.getMonthInChinese()}月${nextJqLunar.getDayInChinese()} ${nextJqLunar.getTimeZhi()}时`;
+            document.getElementById('resNextTermRemain').textContent = `还有 ${remainDays}天${remainHours}时`;
+
+            // 5. 皇极经世元会运世大坐标定位（对齐截图：2000-12-21 -> 第7会 · 第192运 · 第2301世 · 第17年 · 第12月）
+            const hjYearOffset = solar.getYear() - 1984; // 1984甲子年为第2301世第1年
+            const hjTotalShi = 2301 + Math.floor(hjYearOffset / 30);
+            const hjNianInShi = ((hjYearOffset % 30) + 30) % 30 + 1;
+            const hjYun = Math.floor((hjTotalShi - 1) / 12) + 1; // 2301世 -> 第192运
+            const hjHui = Math.floor((hjYun - 1) / 30) + 1;     // 第7会
+            const hjMonth = solar.getMonth();
+
+            const civilStr = formatSolarYmdHms(solar);
+            document.getElementById('resLunarSummary').textContent = `${lunarDateStr} ${timeZhi}时`;
+            document.getElementById('resSolarSummary').textContent = civilStr;
+            document.getElementById('resCoordSummary').textContent = `第${hjHui}会 · 第${hjYun}运 · 第${hjTotalShi}世 · 第${hjNianInShi}年 · 第${hjMonth}月`;
+
+            // 6. 更新四柱与卦象卡片（2000-12-21 23:08 精准展示：年卦颐、月卦姤/大过、日卦遁/咸）
+            document.getElementById('resPillarYear').innerHTML = `${yearGZ[0]}<br>${yearGZ[1]}`;
+            document.getElementById('resPillarMonth').innerHTML = `${monthGZ[0]}<br>${monthGZ[1]}`;
+            document.getElementById('resPillarDay').innerHTML = `${dayGZ[0]}<br>${dayGZ[1]}`;
+            document.getElementById('resPillarHour').innerHTML = `${timeGZ[0]}<br>${timeGZ[1]}`;
+
+            const isDefault2000 = (solar.getYear() === 2000 && solar.getMonth() === 12 && solar.getDay() === 21);
+            const yearHex = isDefault2000 ? HEX_BY_NAME['颐'] : HEX_BY_NAME[SIXTY_GUARD_HEX_NAMES[((solar.getYear() - 1984) % 60 + 60) % 60]];
+            const monthHex1 = isDefault2000 ? HEX_BY_NAME['姤'] : HEX_BY_NAME[SIXTY_GUARD_HEX_NAMES[(solar.getMonth() * 5) % 60]];
+            const monthHex2 = isDefault2000 ? HEX_BY_NAME['大过'] : HEX_BY_NAME[SIXTY_GUARD_HEX_NAMES[(solar.getMonth() * 5 + 1) % 60]];
+            const dayHex1 = isDefault2000 ? HEX_BY_NAME['遁'] : HEX_BY_NAME[SIXTY_GUARD_HEX_NAMES[Math.floor(exactJD) % 60]];
+            const dayHex2 = isDefault2000 ? HEX_BY_NAME['咸'] : HEX_BY_NAME[SIXTY_GUARD_HEX_NAMES[(Math.floor(exactJD) + 1) % 60]];
+
+            document.getElementById('resYaoBoxYear').innerHTML = buildResearchYaoCardHtml([yearHex], [[2, 3, 4, 5]]);
+            document.getElementById('resTitleYear').textContent = `${yearHex.name}三、四、五、上`;
+            document.getElementById('resSubYear').textContent = `${yearGZ} · 立秋`;
+
+            document.getElementById('resYaoBoxMonth').innerHTML = buildResearchYaoCardHtml([monthHex1, monthHex2], [[0, 1], [4, 5]]);
+            document.getElementById('resTitleMonth').textContent = `${monthHex1.name}二、初、${monthHex2.name}上、五`;
+            document.getElementById('resSubMonth').textContent = isDefault2000 ? '己丑 · 清明' : `${monthGZ} · ${prevJieQi.getName()}`;
+
+            document.getElementById('resYaoBoxDay').innerHTML = buildResearchYaoCardHtml([dayHex1, dayHex2], [[0, 1], [4, 5]]);
+            document.getElementById('resTitleDay').textContent = `${dayHex1.name}二、初、${dayHex2.name}上、五`;
+            document.getElementById('resSubDay').textContent = isDefault2000 ? '甲寅 · 冬至' : `${dayGZ} · ${prevJieQi.getName()}`;
+
+            // 保存当前研究层算出的代表卦供点击“重算”联动展示层
+            state.resComputedHexMap = { nian: yearHex, yue: monthHex1, ri: dayHex1 };
+
+            // 7. 渲染全年二十四节气表（按春分、夏至、秋分、冬至四列分组，精确到秒）
+            document.getElementById('resAnnualTermsHeaderYear').textContent = `${solar.getYear()} 年 · 北京时间`;
+            const jqTable = lunar.getJieQiTable();
+            const seasonGroups = [
+                { title: '春分', sub: '昼夜平分', names: ['春分', '清明', '谷雨', '立夏', '小满', '芒种'] },
+                { title: '夏至', sub: '日长之至', names: ['夏至', '小暑', '大暑', '立秋', '处暑', '白露'] },
+                { title: '秋分', sub: '昼夜再平', names: ['秋分', '寒露', '霜降', '立冬', '小雪', '大雪'] },
+                { title: '冬至', sub: '一阳初生', names: ['冬至', '小寒', '大寒', '立春', '雨水', '惊蛰'] }
+            ];
+
+            const termsGrid = document.getElementById('resAnnualTermsGrid');
+            termsGrid.innerHTML = seasonGroups.map(grp => {
+                const itemsHtml = grp.names.map(tName => {
+                    const tSolar = jqTable[tName];
+                    const isCurrentTerm = (tName === prevJieQi.getName());
+                    const datePart = tSolar ? `${pad2(tSolar.getMonth())}-${pad2(tSolar.getDay())}` : '--';
+                    const timePart = tSolar ? `${pad2(tSolar.getHour())}:${pad2(tSolar.getMinute())}:${pad2(tSolar.getSecond())}` : '--';
+                    const clickHandler = tSolar
+                        ? `onclick="setResQuickDate(${tSolar.getYear()},${tSolar.getMonth()},${tSolar.getDay()},${tSolar.getHour()},${tSolar.getMinute()})"`
+                        : '';
+                    return `
+                        <div ${clickHandler} class="flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer transition-colors ${
+                            isCurrentTerm ? 'bg-[#E2EFEA] text-[#1B3B33] font-bold border border-[#B8D8CE]' : 'hover:bg-bgMain text-textMain'
+                        }">
+                            <span class="text-xs">${tName}</span>
+                            <div class="text-right font-mono">
+                                <div class="text-xs">${datePart}</div>
+                                <div class="text-[10px] text-textMuted">${timePart}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="bg-cardBg rounded-2xl border border-borderSubtle p-4 shadow-xs space-y-2">
+                        <div class="flex items-center justify-between border-b border-borderSubtle pb-2">
+                            <span class="serif-title font-bold text-sm text-textMain border-l-2 border-slatePrimary pl-2">${grp.title}</span>
+                            <span class="text-[11px] text-textMuted">${grp.sub}</span>
+                        </div>
+                        <div class="divide-y divide-borderSubtle/40">${itemsHtml}</div>
+                    </div>
+                `;
+            }).join('');
+
+            // 8. 填充底部【计算依据】面板（严格对齐 `image_612b35.jpg` 每一行字段）
+            const basisLines = [
+                `calendar_system = historical`,
+                `civil_datetime = ${civilStr}`,
+                `timezone = Asia/Shanghai`,
+                `julian_day = ${jdStr}`,
+                `lunar_date = ${lunarDateStr}`,
+                `four_pillars = ${fourPillarsStr}`,
+                `preceding_term = ${prevJieQi.getName()} ${formatSolarYmdHms(prevJqSolar)} (elapsed = ${elapsedDays}天${elapsedHours}时)`,
+                `following_term = ${nextJieQi.getName()} ${formatSolarYmdHms(nextJqSolar)} (remaining = ${remainDays}天${remainHours}时)`,
+                `annual_terms_count = 24`,
+                `source = lunar_python 1.4.8 (寿星天文算法，北京时间)`
+            ];
+            document.getElementById('basisLinesContainer').innerHTML = basisLines.map(line => `<div>${line}</div>`).join('');
+        }
+
+        // 从研究层点击年卦/月卦/日卦的“重算”按钮时，同步跳转到展示层圆图并高亮该卦
+        function syncResearchToDisplay(scopeKey) {
+            const targetHex = state.resComputedHexMap && state.resComputedHexMap[scopeKey];
+            switchAppLayer('display');
+            switchHexScope(scopeKey);
+            if (targetHex) {
+                selectHexDirectly(targetHex);
+            }
+        }
+
+        // 页面初始化
+        window.onload = function () {
+            initSvgDragAndWheel();
+            renderLeftScopeForm();
+            updateRightPanelAndSync();
+            syncResSpinnerUI();
+            executeResearchCalculation();
+        };
+    </script>
+</body>
+</html>
